@@ -1,6 +1,6 @@
 <script setup>
 import { computed, ref, watch } from "vue";
-import { PDFDocument, rgb, StandardFonts } from "pdf-lib";
+import { PDFDocument, rgb } from "pdf-lib";
 
 const uploadedFiles = ref([]);
 const numberOfPages = ref(16);
@@ -9,7 +9,6 @@ const numberOfSignatures = ref(1);
 const signatureCalcMode = ref("sheets-fixed");
 const outputWidth = ref(8.5);
 const outputHeight = ref(11);
-const outputOrientation = ref("landscape");
 const pageWidth = ref(2.5);
 const pageHeight = ref(3.5);
 const sheetWidth = ref(5);
@@ -51,10 +50,18 @@ const sortedUploadedFiles = computed(() =>
 );
 
 watch(
-  [effectivePageCount, sheetsPerSignature, numberOfSignatures, signatureCalcMode],
+  [
+    effectivePageCount,
+    sheetsPerSignature,
+    numberOfSignatures,
+    signatureCalcMode,
+  ],
   () => {
     if (signatureCalcMode.value === "sheets-fixed") {
-      const fixedSheets = Math.max(1, Math.floor(Number(sheetsPerSignature.value) || 1));
+      const fixedSheets = Math.max(
+        1,
+        Math.floor(Number(sheetsPerSignature.value) || 1),
+      );
       if (sheetsPerSignature.value !== fixedSheets) {
         sheetsPerSignature.value = fixedSheets;
       }
@@ -75,7 +82,10 @@ watch(
       return;
     }
 
-    const fixedSignatures = Math.max(1, Math.floor(Number(numberOfSignatures.value) || 1));
+    const fixedSignatures = Math.max(
+      1,
+      Math.floor(Number(numberOfSignatures.value) || 1),
+    );
     if (numberOfSignatures.value !== fixedSignatures) {
       numberOfSignatures.value = fixedSignatures;
     }
@@ -131,7 +141,9 @@ const impositionOutputs = computed(() => {
         return {
           relativePageNumber,
           absolutePageNumber,
-          fileName: imageFile?.name ?? (hasSourcePage ? `Page ${absolutePageNumber}` : "Blank"),
+          fileName:
+            imageFile?.name ??
+            (hasSourcePage ? `Page ${absolutePageNumber}` : "Blank"),
           file: imageFile,
           hasSourcePage,
         };
@@ -206,7 +218,10 @@ function onFileUpload(event) {
 }
 
 function onNumberOfPagesInput(event) {
-  numberOfPages.value = Math.max(0, Math.floor(Number(event.target.value) || 0));
+  numberOfPages.value = Math.max(
+    0,
+    Math.floor(Number(event.target.value) || 0),
+  );
 }
 
 function onSheetsPerSignatureInput(event) {
@@ -253,9 +268,7 @@ function revokeCombinedPdfUrl() {
   }
 }
 
-const combinedPdfPageCount = computed(
-  () => impositionOutputs.value.length * 2,
-);
+const combinedPdfPageCount = computed(() => impositionOutputs.value.length * 2);
 
 function triggerDownload(url, fileName) {
   const link = document.createElement("a");
@@ -270,10 +283,7 @@ function downloadCombinedPdf() {
   }
 
   const pageCount = impositionOutputs.value.length * 2;
-  triggerDownload(
-    combinedPdfUrl.value,
-    `bookmaker-output-${pageCount}p.pdf`,
-  );
+  triggerDownload(combinedPdfUrl.value, `bookmaker-output-${pageCount}p.pdf`);
 }
 
 async function embedFileImage(pdfDocument, file) {
@@ -451,37 +461,22 @@ function drawCropMarks(
   }
 }
 
-function drawBlankPlaceholder(page, x, y, width, height, font) {
-  page.drawRectangle({
-    x,
-    y,
-    width,
-    height,
-    borderColor: rgb(0.75, 0.75, 0.78),
-    borderWidth: 1,
-    color: rgb(0.97, 0.97, 0.98),
-  });
-
-  page.drawText("BLANK", {
-    x: x + width / 2 - 20,
-    y: y + height / 2 - 6,
-    size: 12,
-    font,
-    color: rgb(0.35, 0.35, 0.4),
-  });
-}
-
 function formatInchesLabel(value) {
   const rounded = Number(value);
   if (!Number.isFinite(rounded)) {
     return "0";
   }
 
-  return Number.isInteger(rounded) ? String(rounded) : rounded.toFixed(2).replace(/\.?0+$/, "");
+  return Number.isInteger(rounded)
+    ? String(rounded)
+    : rounded.toFixed(2).replace(/\.?0+$/, "");
 }
 
 async function createPagePlaceholderPngBytes(slot, rotationDegreesValue) {
-  const ratio = Math.max(0.2, Number(pageHeight.value) / Math.max(0.2, Number(pageWidth.value)));
+  const ratio = Math.max(
+    0.2,
+    Number(pageHeight.value) / Math.max(0.2, Number(pageWidth.value)),
+  );
   const baseWidth = 700;
   const baseHeight = Math.round(baseWidth * ratio);
   const canvas = document.createElement("canvas");
@@ -575,7 +570,6 @@ async function drawImpositionSide(
   const startY = (outputHeightPoints - totalGridHeightPoints) / 2;
   const markOffsetPoints = toPoints(cropMarkOffset.value);
   const markLengthPoints = toPoints(cropMarkLength.value);
-  const blankFont = await pdfDocument.embedFont(StandardFonts.HelveticaBold);
 
   for (let slotIndex = 0; slotIndex < slots.length; slotIndex += 1) {
     const row = Math.floor(slotIndex / 2);
@@ -618,14 +612,6 @@ async function drawImpositionSide(
     }
 
     if (!slot.file) {
-      drawBlankPlaceholder(
-        page,
-        x,
-        y,
-        slotWidthPoints,
-        slotHeightPoints,
-        blankFont,
-      );
       continue;
     }
 
@@ -651,14 +637,6 @@ async function drawImpositionSide(
     }
 
     if (!embeddedImage) {
-      drawBlankPlaceholder(
-        page,
-        x,
-        y,
-        slotWidthPoints,
-        slotHeightPoints,
-        blankFont,
-      );
       continue;
     }
 
@@ -744,7 +722,7 @@ async function generatePdfOutput() {
       </p>
 
       <div class="grid">
-        <label class="field field-full">
+        <label class="field">
           <span>Page Images Folder</span>
           <input
             type="file"
@@ -759,7 +737,7 @@ async function generatePdfOutput() {
           >
         </label>
 
-        <label class="field field-full">
+        <label class="field">
           <span>Or Select Image Files Directly</span>
           <input
             type="file"
@@ -794,9 +772,11 @@ async function generatePdfOutput() {
             @input="onNumberOfPagesInput"
           />
           <small v-if="uploadedPageCount > 0">
-            Disabled while images are uploaded (using {{ uploadedPageCount }} uploaded page{{
+            Disabled while images are uploaded (using
+            {{ uploadedPageCount }} uploaded page{{
               uploadedPageCount === 1 ? "" : "s"
-            }} instead).
+            }}
+            instead).
           </small>
           <small v-else>
             Generating placeholders for {{ effectivePageCount }} page{{
@@ -858,83 +838,82 @@ async function generatePdfOutput() {
           >
         </div>
 
-        <label class="field">
-          <span>Output Width (inches)</span>
-          <input
-            v-model.number="outputWidth"
-            type="number"
-            min="0.1"
-            step="0.1"
-          />
-        </label>
+        <div class="field field-full size-groups">
+          <section class="size-group">
+            <h3>Page</h3>
+            <label class="field">
+              <span>Width (inches)</span>
+              <input
+                v-model.number="pageWidth"
+                type="number"
+                min="0.1"
+                step="0.1"
+              />
+            </label>
+            <label class="field">
+              <span>Height (inches)</span>
+              <input
+                v-model.number="pageHeight"
+                type="number"
+                min="0.1"
+                step="0.1"
+              />
+            </label>
+          </section>
 
-        <label class="field">
-          <span>Output Height (inches)</span>
-          <input
-            v-model.number="outputHeight"
-            type="number"
-            min="0.1"
-            step="0.1"
-          />
-        </label>
+          <section class="size-group">
+            <h3>Sheet</h3>
+            <label class="field">
+              <span>Width (inches)</span>
+              <input
+                v-model.number="sheetWidth"
+                type="number"
+                min="0.1"
+                step="0.1"
+              />
+            </label>
+            <label class="field">
+              <span>Height (inches)</span>
+              <input
+                v-model.number="sheetHeight"
+                type="number"
+                min="0.1"
+                step="0.1"
+              />
+            </label>
+          </section>
 
-        <label class="field">
-          <span>Output Orientation</span>
-          <select v-model="outputOrientation">
-            <option value="landscape">Landscape</option>
-            <option value="portrait">Portrait</option>
-          </select>
-        </label>
-
-        <label class="field">
-          <span>Page Width (inches)</span>
-          <input
-            v-model.number="pageWidth"
-            type="number"
-            min="0.1"
-            step="0.1"
-          />
-        </label>
-
-        <label class="field">
-          <span>Page Height (inches)</span>
-          <input
-            v-model.number="pageHeight"
-            type="number"
-            min="0.1"
-            step="0.1"
-          />
-        </label>
-
-        <label class="field">
-          <span>Sheet Width (inches)</span>
-          <input
-            v-model.number="sheetWidth"
-            type="number"
-            min="0.1"
-            step="0.1"
-          />
-        </label>
-
-        <label class="field">
-          <span>Sheet Height (inches)</span>
-          <input
-            v-model.number="sheetHeight"
-            type="number"
-            min="0.1"
-            step="0.1"
-          />
-        </label>
-
-        <label class="field">
-          <span>Sheets Per Output</span>
-          <input
-            v-model.number="sheetsPerOutput"
-            type="number"
-            min="1"
-            step="1"
-          />
-        </label>
+          <section class="size-group">
+            <h3>Output</h3>
+            <label class="field">
+              <span>Width (inches)</span>
+              <input
+                v-model.number="outputWidth"
+                type="number"
+                min="0.1"
+                step="0.1"
+              />
+            </label>
+            <label class="field">
+              <span>Height (inches)</span>
+              <input
+                v-model.number="outputHeight"
+                type="number"
+                min="0.1"
+                step="0.1"
+              />
+            </label>
+            <label class="field">
+              <span>Sheets Per Output</span>
+              <input
+                v-model.number="sheetsPerOutput"
+                type="number"
+                min="1"
+                step="1"
+              />
+            </label>
+          </section>
+        </div>
       </div>
 
       <hr />
@@ -962,11 +941,6 @@ async function generatePdfOutput() {
 
       <div class="pdf-output">
         <h2>Actual-Size PDF Output</h2>
-        <p class="note">
-          Generates one true-size PDF: for each signature, page 1 is the front
-          of the output sheet and page 2 is the back (so 1 signature = 2 pages,
-          2 signatures = 4 pages, and so on).
-        </p>
         <p class="note" :class="{ 'warning-inline': !layoutFit.fits }">
           Required layout size (current rotation):
           {{ layoutFit.requiredWidth.toFixed(2) }}" x
@@ -976,13 +950,13 @@ async function generatePdfOutput() {
         </p>
         <p v-if="!layoutFit.fits" class="warning">
           This combination overflows the output page at actual size, which
-          causes clipped scaling/crop marks. Reduce page size, rotation footprint,
-          or gap values.
+          causes clipped scaling/crop marks. Reduce page size, rotation
+          footprint, or gap values.
         </p>
 
         <div class="pdf-controls">
           <label class="field">
-            <span>Front Rotation (degrees)</span>
+            <span>Sheet Orientation (Front, degrees)</span>
             <select v-model.number="frontRotationDegrees">
               <option :value="0">0°</option>
               <option :value="90">90° CW</option>
@@ -992,7 +966,7 @@ async function generatePdfOutput() {
           </label>
 
           <label class="field">
-            <span>Back Rotation (degrees)</span>
+            <span>Sheet Orientation (Back, degrees)</span>
             <select v-model.number="backRotationDegrees">
               <option :value="0">0°</option>
               <option :value="90">90° CW</option>
@@ -1039,7 +1013,9 @@ async function generatePdfOutput() {
               min="0"
               step="0.01"
             />
-            <small>Applied only between sheet rows, not at the fold center.</small>
+            <small
+              >Applied only between sheet rows, not at the fold center.</small
+            >
           </label>
         </div>
 
@@ -1056,7 +1032,11 @@ async function generatePdfOutput() {
         </div>
 
         <div v-if="combinedPdfUrl" class="download-group">
-          <button type="button" class="small-button" @click="downloadCombinedPdf">
+          <button
+            type="button"
+            class="small-button"
+            @click="downloadCombinedPdf"
+          >
             Download PDF ({{ combinedPdfPageCount }} page{{
               combinedPdfPageCount === 1 ? "" : "s"
             }})
