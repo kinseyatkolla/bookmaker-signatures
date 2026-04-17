@@ -381,6 +381,7 @@ function drawCropMarks(
   height,
   markOffsetPoints,
   markLengthPoints,
+  edges,
 ) {
   const yTop = y + height;
   const yBottom = y;
@@ -389,57 +390,65 @@ function drawCropMarks(
   const lineColor = rgb(0.1, 0.1, 0.1);
   const thickness = 0.6;
 
-  page.drawLine({
-    start: { x: xLeft, y: yTop + markOffsetPoints },
-    end: { x: xLeft, y: yTop + markOffsetPoints + markLengthPoints },
-    thickness,
-    color: lineColor,
-  });
-  page.drawLine({
-    start: { x: xLeft, y: yBottom - markOffsetPoints },
-    end: { x: xLeft, y: yBottom - markOffsetPoints - markLengthPoints },
-    thickness,
-    color: lineColor,
-  });
+  if (edges.top) {
+    page.drawLine({
+      start: { x: xLeft, y: yTop + markOffsetPoints },
+      end: { x: xLeft, y: yTop + markOffsetPoints + markLengthPoints },
+      thickness,
+      color: lineColor,
+    });
+    page.drawLine({
+      start: { x: xRight, y: yTop + markOffsetPoints },
+      end: { x: xRight, y: yTop + markOffsetPoints + markLengthPoints },
+      thickness,
+      color: lineColor,
+    });
+  }
 
-  page.drawLine({
-    start: { x: xRight, y: yTop + markOffsetPoints },
-    end: { x: xRight, y: yTop + markOffsetPoints + markLengthPoints },
-    thickness,
-    color: lineColor,
-  });
-  page.drawLine({
-    start: { x: xRight, y: yBottom - markOffsetPoints },
-    end: { x: xRight, y: yBottom - markOffsetPoints - markLengthPoints },
-    thickness,
-    color: lineColor,
-  });
+  if (edges.bottom) {
+    page.drawLine({
+      start: { x: xLeft, y: yBottom - markOffsetPoints },
+      end: { x: xLeft, y: yBottom - markOffsetPoints - markLengthPoints },
+      thickness,
+      color: lineColor,
+    });
+    page.drawLine({
+      start: { x: xRight, y: yBottom - markOffsetPoints },
+      end: { x: xRight, y: yBottom - markOffsetPoints - markLengthPoints },
+      thickness,
+      color: lineColor,
+    });
+  }
 
-  page.drawLine({
-    start: { x: xLeft - markOffsetPoints, y: yTop },
-    end: { x: xLeft - markOffsetPoints - markLengthPoints, y: yTop },
-    thickness,
-    color: lineColor,
-  });
-  page.drawLine({
-    start: { x: xRight + markOffsetPoints, y: yTop },
-    end: { x: xRight + markOffsetPoints + markLengthPoints, y: yTop },
-    thickness,
-    color: lineColor,
-  });
+  if (edges.left) {
+    page.drawLine({
+      start: { x: xLeft - markOffsetPoints, y: yTop },
+      end: { x: xLeft - markOffsetPoints - markLengthPoints, y: yTop },
+      thickness,
+      color: lineColor,
+    });
+    page.drawLine({
+      start: { x: xLeft - markOffsetPoints, y: yBottom },
+      end: { x: xLeft - markOffsetPoints - markLengthPoints, y: yBottom },
+      thickness,
+      color: lineColor,
+    });
+  }
 
-  page.drawLine({
-    start: { x: xLeft - markOffsetPoints, y: yBottom },
-    end: { x: xLeft - markOffsetPoints - markLengthPoints, y: yBottom },
-    thickness,
-    color: lineColor,
-  });
-  page.drawLine({
-    start: { x: xRight + markOffsetPoints, y: yBottom },
-    end: { x: xRight + markOffsetPoints + markLengthPoints, y: yBottom },
-    thickness,
-    color: lineColor,
-  });
+  if (edges.right) {
+    page.drawLine({
+      start: { x: xRight + markOffsetPoints, y: yTop },
+      end: { x: xRight + markOffsetPoints + markLengthPoints, y: yTop },
+      thickness,
+      color: lineColor,
+    });
+    page.drawLine({
+      start: { x: xRight + markOffsetPoints, y: yBottom },
+      end: { x: xRight + markOffsetPoints + markLengthPoints, y: yBottom },
+      thickness,
+      color: lineColor,
+    });
+  }
 }
 
 function drawBlankPlaceholder(page, x, y, width, height, font) {
@@ -585,6 +594,12 @@ async function drawImpositionSide(
       slotHeightPoints,
       markOffsetPoints,
       markLengthPoints,
+      {
+        top: row === 0,
+        bottom: row === 3,
+        left: col === 0,
+        right: col === 1,
+      },
     );
 
     if (!slot.file && slot.hasSourcePage) {
