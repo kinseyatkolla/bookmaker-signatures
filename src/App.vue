@@ -1,5 +1,5 @@
 <script setup>
-import { computed, ref, watch } from "vue";
+import { computed, onMounted, onUnmounted, ref, watch } from "vue";
 import { PDFDocument, rgb } from "pdf-lib";
 
 const uploadedFiles = ref([]);
@@ -13,21 +13,38 @@ const pageWidth = ref(2.5);
 const pageHeight = ref(3.5);
 const sheetWidth = ref(5);
 const sheetHeight = ref(3.5);
-const sheetsPerOutput = ref(4);
-const expectedImagesPerSignature = 16;
+/** User-defined output grid: this many sheets per output page (cols × rows). */
+const outputLayoutCols = ref(2);
+const outputLayoutRows = ref(2);
+/**
+ * Fold line inside each output grid cell (spine on the flat sheet).
+ * "vertical" = vertical fold (pages left/right); grid math uses unrotated page size.
+ * "horizontal" = horizontal fold (pages stacked); grid math uses rotated page size
+ * from Sheet Orientation for that side.
+ */
+const outputFoldAxis = ref("horizontal");
+
+const OUTPUT_LAYOUT_GRID_MAX = 8;
+const layoutSelectDragging = ref(false);
+const layoutSelectAnchor = ref({ col: 0, row: 0 });
+const layoutSelectEnd = ref({ col: 0, row: 0 });
 const frontRotationDegrees = ref(90);
 const backRotationDegrees = ref(-90);
+
+/** Added to plate rotation when rasterizing page art for PDF (slot sizing still uses plate angles). */
+function impositionRasterRotationDegrees(plateRotationDegrees) {
+  const base = Number(plateRotationDegrees) + 180;
+  return ((base % 360) + 360) % 360;
+}
 const cropMarkOffset = ref(0.08);
 const cropMarkLength = ref(0.18);
+/** Space between sheet rows on the output (adds to total layout height). */
 const horizontalGap = ref(0.08);
+/** Space between sheet columns on the output (adds to total layout width). */
 const verticalGap = ref(0.08);
 const isGeneratingPdf = ref(false);
 const pdfError = ref("");
 const combinedPdfUrl = ref("");
-
-// Template for your provided 16-page layout (2 columns x 4 rows).
-const frontPattern = [2, 4, 15, 13, 6, 8, 11, 9];
-const backPattern = [3, 1, 14, 16, 7, 5, 10, 12];
 
 const pagesPerSheet = 4;
 const pagesPerSignature = computed(
@@ -112,77 +129,311 @@ const totalCapacityPages = computed(
 const blankPagesNeeded = computed(() =>
   Math.max(0, totalCapacityPages.value - effectivePageCount.value),
 );
+const sheetsPerOutputCount = computed(
+  () =>
+    normalizePositiveInteger(outputLayoutCols.value, 1) *
+    normalizePositiveInteger(outputLayoutRows.value, 1),
+);
+
 const templateMatchesCurrentInputs = computed(
   () =>
-    sheetsPerSignature.value === 4 &&
-    sheetsPerOutput.value === 4 &&
-    pagesPerSignature.value === expectedImagesPerSignature,
+    Number.isInteger(Number(sheetsPerSignature.value)) &&
+    Number(sheetsPerSignature.value) >= 1 &&
+    Number.isInteger(Number(outputLayoutCols.value)) &&
+    Number(outputLayoutCols.value) >= 1 &&
+    Number.isInteger(Number(outputLayoutRows.value)) &&
+    Number(outputLayoutRows.value) >= 1,
 );
 
 const formattedFilePreview = computed(() =>
   sortedUploadedFiles.value.slice(0, 6).map((file) => file.name),
 );
 
+function normalizePositiveInteger(value, fallback = 1) {
+  const normalized = Math.floor(Number(value) || fallback);
+  return Math.max(1, normalized);
+}
+
+function getOutputLayoutPattern() {
+  return {
+    sheetCols: normalizePositiveInteger(outputLayoutCols.value, 1),
+    sheetRows: normalizePositiveInteger(outputLayoutRows.value, 1),
+  };
+}
+
+function layoutSelectionBounds() {
+  const c0 = layoutSelectAnchor.value.col;
+  const r0 = layoutSelectAnchor.value.row;
+  const c1 = layoutSelectEnd.value.col;
+  const r1 = layoutSelectEnd.value.row;
+  return {
+    minCol: Math.min(c0, c1),
+    maxCol: Math.max(c0, c1),
+    minRow: Math.min(r0, r1),
+    maxRow: Math.max(r0, r1),
+  };
+}
+
+function layoutCellInDragPreview(col, row) {
+  if (!layoutSelectDragging.value) {
+    return false;
+  }
+  const { minCol, maxCol, minRow, maxRow } = layoutSelectionBounds();
+  return col >= minCol && col <= maxCol && row >= minRow && row <= maxRow;
+}
+
+function layoutCellCommitted(col, row) {
+  if (layoutSelectDragging.value) {
+    return false;
+  }
+  return (
+    col < normalizePositiveInteger(outputLayoutCols.value, 1) &&
+    row < normalizePositiveInteger(outputLayoutRows.value, 1)
+  );
+}
+
+function onOutputLayoutPointerDown(col, row, event) {
+  event.preventDefault();
+  layoutSelectDragging.value = true;
+  layoutSelectAnchor.value = { col, row };
+  layoutSelectEnd.value = { col, row };
+}
+
+function onOutputLayoutPointerEnter(col, row) {
+  if (!layoutSelectDragging.value) {
+    return;
+  }
+  layoutSelectEnd.value = { col, row };
+}
+
+function commitOutputLayoutSelection() {
+  if (!layoutSelectDragging.value) {
+    return;
+  }
+  const { minCol, maxCol, minRow, maxRow } = layoutSelectionBounds();
+  const cols = maxCol - minCol + 1;
+  const rows = maxRow - minRow + 1;
+  outputLayoutCols.value = cols;
+  outputLayoutRows.value = rows;
+  layoutSelectDragging.value = false;
+}
+
+function onOutputLayoutPointerUpGlobal() {
+  commitOutputLayoutSelection();
+}
+
+onMounted(() => {
+  window.addEventListener("pointerup", onOutputLayoutPointerUpGlobal);
+  window.addEventListener("pointercancel", onOutputLayoutPointerUpGlobal);
+});
+
+onUnmounted(() => {
+  window.removeEventListener("pointerup", onOutputLayoutPointerUpGlobal);
+  window.removeEventListener("pointercancel", onOutputLayoutPointerUpGlobal);
+});
+
+function buildSheetSlot(signatureOffset, relativePageNumber) {
+  const absolutePageNumber = signatureOffset + relativePageNumber;
+  const imageFile = sortedUploadedFiles.value[absolutePageNumber - 1] ?? null;
+  const hasSourcePage = absolutePageNumber <= effectivePageCount.value;
+  return {
+    relativePageNumber,
+    absolutePageNumber,
+    fileName:
+      imageFile?.name ??
+      (hasSourcePage ? `Page ${absolutePageNumber}` : "Blank"),
+    file: imageFile,
+    hasSourcePage,
+  };
+}
+
+/**
+ * Zigzag nesting: sheet index 0 is outer (high|low), last index innermost.
+ * Front pair high|low; back pair (high-1)|(low+1) left-to-right on the sheet.
+ */
+function buildSignatureSheets(signatureIndex) {
+  const signatureSheetCount = normalizePositiveInteger(
+    sheetsPerSignature.value,
+    1,
+  );
+  const signaturePageCount = signatureSheetCount * pagesPerSheet;
+  const signatureOffset = signatureIndex * signaturePageCount;
+
+  return Array.from({ length: signatureSheetCount }, (_, sheetIndex) => {
+    const lowPage = sheetIndex * 2 + 1;
+    const highPage = signaturePageCount - sheetIndex * 2;
+
+    return {
+      sheetNumber: sheetIndex + 1,
+      front: [
+        buildSheetSlot(signatureOffset, highPage),
+        buildSheetSlot(signatureOffset, lowPage),
+      ],
+      back: [
+        buildSheetSlot(signatureOffset, highPage - 1),
+        buildSheetSlot(signatureOffset, lowPage + 1),
+      ],
+    };
+  });
+}
+
+/**
+ * Maps physical sheets (sequential after zigzag build) onto output grid cells.
+ * Front: each row right-to-left, rows top-to-bottom. Back: left-to-right, top-to-bottom.
+ * Row-major sheetIndex is row * cols + col (matches placeSheetsOnOutputSheet).
+ */
+function layoutSheetsOnOutputGrid(physicalSheets, side, pattern) {
+  const sheetCols = Math.max(1, Math.floor(Number(pattern?.sheetCols) || 1));
+  const sheetRows = Math.max(1, Math.floor(Number(pattern?.sheetRows) || 1));
+  const gridSlots = sheetCols * sheetRows;
+  const n = physicalSheets.length;
+
+  const visitOrder = [];
+  if (side === "front") {
+    for (let row = 0; row < sheetRows; row += 1) {
+      for (let col = sheetCols - 1; col >= 0; col -= 1) {
+        visitOrder.push(row * sheetCols + col);
+      }
+    }
+  } else {
+    for (let row = 0; row < sheetRows; row += 1) {
+      for (let col = 0; col < sheetCols; col += 1) {
+        visitOrder.push(row * sheetCols + col);
+      }
+    }
+  }
+
+  const out = Array.from({ length: gridSlots }, () => null);
+  for (let i = 0; i < n && i < visitOrder.length; i += 1) {
+    out[visitOrder[i]] = physicalSheets[i];
+  }
+  return out;
+}
+
+function placeSheetsOnOutputSheet(sheets, side, pattern) {
+  const sheetCols = Math.max(1, Math.floor(Number(pattern?.sheetCols) || 1));
+  const sheetRows = Math.max(1, Math.floor(Number(pattern?.sheetRows) || 1));
+  const targetSheetCount = sheetCols * sheetRows;
+  const placedSlots = [];
+
+  for (let sheetIndex = 0; sheetIndex < targetSheetCount; sheetIndex += 1) {
+    const sheet = sheets[sheetIndex];
+    if (!sheet) {
+      continue;
+    }
+
+    const sheetRow = Math.floor(sheetIndex / sheetCols);
+    const sheetCol = sheetIndex % sheetCols;
+    const slotPair = side === "front" ? sheet.front : sheet.back;
+
+    for (let pageIndex = 0; pageIndex < slotPair.length; pageIndex += 1) {
+      const slot = slotPair[pageIndex];
+      placedSlots.push({
+        ...slot,
+        gridRow: sheetRow,
+        sheetCol,
+        pageIndexWithinSheet: pageIndex,
+      });
+    }
+  }
+
+  return {
+    slots: placedSlots,
+    rowCount: sheetRows,
+    sheetCols,
+    foldAxis: outputFoldAxis.value,
+  };
+}
+
 const impositionOutputs = computed(() => {
   if (!templateMatchesCurrentInputs.value) {
     return [];
   }
 
-  return Array.from(
-    { length: numberOfSignatures.value },
-    (_, signatureIndex) => {
-      const signatureOffset = signatureIndex * expectedImagesPerSignature;
+  const pattern = getOutputLayoutPattern();
+  const normalizedSheetsPerOutput = pattern.sheetCols * pattern.sheetRows;
+  const outputs = [];
 
-      const buildSlot = (relativePageNumber) => {
-        const absolutePageNumber = signatureOffset + relativePageNumber;
-        const imageFile =
-          sortedUploadedFiles.value[absolutePageNumber - 1] ?? null;
-        const hasSourcePage = absolutePageNumber <= effectivePageCount.value;
-        return {
-          relativePageNumber,
-          absolutePageNumber,
-          fileName:
-            imageFile?.name ??
-            (hasSourcePage ? `Page ${absolutePageNumber}` : "Blank"),
-          file: imageFile,
-          hasSourcePage,
-        };
-      };
+  for (
+    let signatureIndex = 0;
+    signatureIndex < numberOfSignatures.value;
+    signatureIndex += 1
+  ) {
+    const signatureSheets = buildSignatureSheets(signatureIndex);
+    const outputCountForSignature = Math.ceil(
+      signatureSheets.length / normalizedSheetsPerOutput,
+    );
 
-      return {
+    for (
+      let outputIndex = 0;
+      outputIndex < outputCountForSignature;
+      outputIndex += 1
+    ) {
+      const start = outputIndex * normalizedSheetsPerOutput;
+      const end = start + normalizedSheetsPerOutput;
+      const outputSheets = signatureSheets.slice(start, end);
+      const frontSheets = layoutSheetsOnOutputGrid(
+        outputSheets,
+        "front",
+        pattern,
+      );
+      const backSheets = layoutSheetsOnOutputGrid(
+        outputSheets,
+        "back",
+        pattern,
+      );
+      outputs.push({
         signatureNumber: signatureIndex + 1,
-        front: frontPattern.map(buildSlot),
-        back: backPattern.map(buildSlot),
-      };
-    },
-  );
+        outputNumberWithinSignature: outputIndex + 1,
+        front: placeSheetsOnOutputSheet(frontSheets, "front", pattern),
+        back: placeSheetsOnOutputSheet(backSheets, "back", pattern),
+      });
+    }
+  }
+
+  return outputs;
 });
 
-function getRequiredLayoutForRotation(rotationDegreesValue) {
-  const slot = getRotatedSlotSizeInches(rotationDegreesValue);
-  const gapX = Math.max(0, Number(horizontalGap.value));
-  const gapY = Math.max(0, Number(verticalGap.value));
+function getRequiredLayoutForOutput() {
+  const pattern = getOutputLayoutPattern();
+  const gapBetweenCols = Math.max(0, Number(verticalGap.value));
+  const gapBetweenRows = Math.max(0, Number(horizontalGap.value));
+  const frontSlot = getLayoutSlotForGridInches(frontRotationDegrees.value);
+  const backSlot = getLayoutSlotForGridInches(backRotationDegrees.value);
+  const slot = {
+    width: Math.max(frontSlot.width, backSlot.width),
+    height: Math.max(frontSlot.height, backSlot.height),
+  };
+  const stacked = outputFoldAxis.value === "horizontal";
+
+  if (stacked) {
+    const sheetW = slot.width;
+    const sheetH = slot.height * 2;
+    return {
+      requiredWidth:
+        sheetW * pattern.sheetCols +
+        gapBetweenCols * Math.max(0, pattern.sheetCols - 1),
+      requiredHeight:
+        sheetH * pattern.sheetRows +
+        gapBetweenRows * Math.max(0, pattern.sheetRows - 1),
+    };
+  }
+
+  const sheetW = slot.width * 2;
+  const sheetH = slot.height;
   return {
-    requiredWidth: slot.width * 2 + gapX,
-    // Vertical sheet gap is only between sheet blocks, not between the fold halves.
-    requiredHeight: slot.height * 4 + gapY,
+    requiredWidth:
+      sheetW * pattern.sheetCols +
+      gapBetweenCols * Math.max(0, pattern.sheetCols - 1),
+    requiredHeight:
+      sheetH * pattern.sheetRows +
+      gapBetweenRows * Math.max(0, pattern.sheetRows - 1),
   };
 }
 
 const layoutFit = computed(() => {
   const output = getOutputPageSizeInches();
-  const frontRequired = getRequiredLayoutForRotation(
-    frontRotationDegrees.value,
-  );
-  const backRequired = getRequiredLayoutForRotation(backRotationDegrees.value);
-  const requiredWidth = Math.max(
-    frontRequired.requiredWidth,
-    backRequired.requiredWidth,
-  );
-  const requiredHeight = Math.max(
-    frontRequired.requiredHeight,
-    backRequired.requiredHeight,
-  );
+  const { requiredWidth, requiredHeight } = getRequiredLayoutForOutput();
 
   return {
     outputWidth: output.width,
@@ -190,6 +441,105 @@ const layoutFit = computed(() => {
     requiredWidth,
     requiredHeight,
     fits: requiredWidth <= output.width && requiredHeight <= output.height,
+  };
+});
+
+const sheetPatternPreview = computed(() => {
+  const pattern = getOutputLayoutPattern();
+  const count = pattern.sheetCols * pattern.sheetRows;
+
+  const foldLabel =
+    outputFoldAxis.value === "horizontal"
+      ? "horizontal fold (stacked)"
+      : "vertical fold (left and right)";
+
+  return `${pattern.sheetCols} column${
+    pattern.sheetCols === 1 ? "" : "s"
+  } × ${pattern.sheetRows} row${pattern.sheetRows === 1 ? "" : "s"} (${count} sheet${
+    count === 1 ? "" : "s"
+  } per output — ${foldLabel})`;
+});
+
+const layoutPreview = computed(() => {
+  const pattern = getOutputLayoutPattern();
+  const normalizedSheetsPerOutput = pattern.sheetCols * pattern.sheetRows;
+  const frontSlot = getLayoutSlotForGridInches(frontRotationDegrees.value);
+  const backSlot = getLayoutSlotForGridInches(backRotationDegrees.value);
+  const slot = {
+    width: Math.max(frontSlot.width, backSlot.width),
+    height: Math.max(frontSlot.height, backSlot.height),
+  };
+  const gapAtFold = 0;
+  const gapBetweenCols = Math.max(0, Number(verticalGap.value));
+  const gapBetweenRows = Math.max(0, Number(horizontalGap.value));
+  const output = getOutputPageSizeInches();
+  const foldHorizontal = outputFoldAxis.value === "horizontal";
+  const sheetLayoutWidth = foldHorizontal
+    ? slot.width
+    : slot.width * 2 + gapAtFold;
+  const sheetLayoutHeight = foldHorizontal
+    ? slot.height * 2 + gapAtFold
+    : slot.height;
+  const requiredWidth =
+    sheetLayoutWidth * pattern.sheetCols +
+    gapBetweenCols * Math.max(0, pattern.sheetCols - 1);
+  const requiredHeight =
+    sheetLayoutHeight * pattern.sheetRows +
+    gapBetweenRows * Math.max(0, pattern.sheetRows - 1);
+  const offsetX = (output.width - requiredWidth) / 2;
+  const offsetY = (output.height - requiredHeight) / 2;
+
+  const sheets = Array.from(
+    { length: normalizedSheetsPerOutput },
+    (_, index) => {
+      const sheetCol = index % pattern.sheetCols;
+      const sheetRow = Math.floor(index / pattern.sheetCols);
+      const x = offsetX + sheetCol * (sheetLayoutWidth + gapBetweenCols);
+      const y = offsetY + sheetRow * (sheetLayoutHeight + gapBetweenRows);
+      const pageA = { x, y, width: slot.width, height: slot.height };
+      const pageB = foldHorizontal
+        ? {
+            x,
+            y: y + slot.height + gapAtFold,
+            width: slot.width,
+            height: slot.height,
+          }
+        : {
+            x: x + slot.width + gapAtFold,
+            y,
+            width: slot.width,
+            height: slot.height,
+          };
+      return {
+        x,
+        y,
+        width: sheetLayoutWidth,
+        height: sheetLayoutHeight,
+        pageA,
+        pageB,
+        label: `${formatInchesLabel(sheetLayoutWidth)}" x ${formatInchesLabel(
+          sheetLayoutHeight,
+        )}"`,
+      };
+    },
+  );
+
+  return {
+    outputWidth: output.width,
+    outputHeight: output.height,
+    requiredWidth,
+    requiredHeight,
+    sheets,
+    gapAtFold,
+    gapBetweenCols,
+    gapBetweenRows,
+    slotWidth: slot.width,
+    slotHeight: slot.height,
+    sheetLayoutWidth,
+    sheetLayoutHeight,
+    fits: requiredWidth <= output.width && requiredHeight <= output.height,
+    pattern,
+    foldHorizontal,
   };
 });
 
@@ -259,6 +609,14 @@ function getRotatedSlotSizeInches(rotationDegrees) {
   }
 
   return { width: pageWidth.value, height: pageHeight.value };
+}
+
+/** Page footprint (in) for output grid math only (see fold + rotation rules). */
+function getLayoutSlotForGridInches(rotationDegreesValue) {
+  if (outputFoldAxis.value === "vertical") {
+    return getRotatedSlotSizeInches(0);
+  }
+  return getRotatedSlotSizeInches(rotationDegreesValue);
 }
 
 function revokeCombinedPdfUrl() {
@@ -551,34 +909,78 @@ async function createPagePlaceholderPngBytes(slot, rotationDegreesValue) {
 async function drawImpositionSide(
   page,
   pdfDocument,
-  slots,
+  sideLayout,
   rotationDegreesValue,
 ) {
+  const slots = sideLayout?.slots ?? [];
+  const rowCount = Math.max(1, Number(sideLayout?.rowCount) || 1);
+  const sheetCols = Math.max(1, Number(sideLayout?.sheetCols) || 1);
+  const foldHorizontal = sideLayout?.foldAxis === "horizontal";
   const outputSize = getOutputPageSizeInches();
   const outputWidthPoints = toPoints(outputSize.width);
   const outputHeightPoints = toPoints(outputSize.height);
-  const slotSize = getRotatedSlotSizeInches(rotationDegreesValue);
+  const slotSize = getLayoutSlotForGridInches(rotationDegreesValue);
   const slotWidthPoints = toPoints(slotSize.width);
   const slotHeightPoints = toPoints(slotSize.height);
-  const gapXPoints = toPoints(Math.max(0, Number(horizontalGap.value)));
-  const gapYPoints = toPoints(Math.max(0, Number(verticalGap.value)));
+  const gapAtFoldPoints = 0;
+  const gapBetweenColsPoints = toPoints(Math.max(0, Number(verticalGap.value)));
+  const gapBetweenRowsPoints = toPoints(
+    Math.max(0, Number(horizontalGap.value)),
+  );
 
-  const totalGridWidthPoints = slotWidthPoints * 2 + gapXPoints;
-  // Apply one vertical gap between the 2 sheet rows (rows 1 and 2), not between every page row.
-  const totalGridHeightPoints = slotHeightPoints * 4 + gapYPoints;
+  const sheetBlockWidthPoints = foldHorizontal
+    ? slotWidthPoints
+    : slotWidthPoints * 2 + gapAtFoldPoints;
+  const sheetBlockHeightPoints = foldHorizontal
+    ? slotHeightPoints * 2 + gapAtFoldPoints
+    : slotHeightPoints;
+
+  const totalGridWidthPoints =
+    sheetBlockWidthPoints * sheetCols +
+    gapBetweenColsPoints * Math.max(0, sheetCols - 1);
+  const totalGridHeightPoints =
+    sheetBlockHeightPoints * rowCount +
+    gapBetweenRowsPoints * Math.max(0, rowCount - 1);
   const startX = (outputWidthPoints - totalGridWidthPoints) / 2;
   const startY = (outputHeightPoints - totalGridHeightPoints) / 2;
   const markOffsetPoints = toPoints(cropMarkOffset.value);
   const markLengthPoints = toPoints(cropMarkLength.value);
 
   for (let slotIndex = 0; slotIndex < slots.length; slotIndex += 1) {
-    const row = Math.floor(slotIndex / 2);
-    const col = slotIndex % 2;
-    const x = startX + col * (slotWidthPoints + gapXPoints);
-    const rowFromBottom = 3 - row;
-    const sheetRowOffset = Math.floor(rowFromBottom / 2) * gapYPoints;
-    const y = startY + rowFromBottom * slotHeightPoints + sheetRowOffset;
     const slot = slots[slotIndex];
+    const row = slot.gridRow;
+    const sheetCol = slot.sheetCol;
+    const pageIndexWithinSheet = slot.pageIndexWithinSheet;
+    const rowFromBottom = rowCount - 1 - row;
+    const cellBaseX =
+      startX + sheetCol * (sheetBlockWidthPoints + gapBetweenColsPoints);
+    const cellBaseY =
+      startY + rowFromBottom * (sheetBlockHeightPoints + gapBetweenRowsPoints);
+
+    let x;
+    let y;
+    if (foldHorizontal) {
+      x = cellBaseX;
+      y =
+        cellBaseY + pageIndexWithinSheet * (slotHeightPoints + gapAtFoldPoints);
+    } else {
+      x =
+        cellBaseX + pageIndexWithinSheet * (slotWidthPoints + gapAtFoldPoints);
+      y = cellBaseY;
+    }
+
+    const cropTop = foldHorizontal
+      ? row === 0 && pageIndexWithinSheet === 1
+      : row === 0;
+    const cropBottom = foldHorizontal
+      ? row === rowCount - 1 && pageIndexWithinSheet === 0
+      : row === rowCount - 1;
+    const cropLeft = foldHorizontal
+      ? sheetCol === 0
+      : sheetCol === 0 && pageIndexWithinSheet === 0;
+    const cropRight = foldHorizontal
+      ? sheetCol === sheetCols - 1
+      : sheetCol === sheetCols - 1 && pageIndexWithinSheet === 1;
 
     drawCropMarks(
       page,
@@ -589,17 +991,19 @@ async function drawImpositionSide(
       markOffsetPoints,
       markLengthPoints,
       {
-        top: row === 0,
-        bottom: row === 3,
-        left: col === 0,
-        right: col === 1,
+        top: cropTop,
+        bottom: cropBottom,
+        left: cropLeft,
+        right: cropRight,
       },
     );
+
+    const rasterRotation = impositionRasterRotationDegrees(rotationDegreesValue);
 
     if (!slot.file && slot.hasSourcePage) {
       const placeholderBytes = await createPagePlaceholderPngBytes(
         slot,
-        rotationDegreesValue,
+        rasterRotation,
       );
       const placeholderImage = await pdfDocument.embedPng(placeholderBytes);
       page.drawImage(placeholderImage, {
@@ -618,13 +1022,13 @@ async function drawImpositionSide(
     const embeddedImage = await embedPreparedImage(
       pdfDocument,
       slot.file,
-      rotationDegreesValue,
+      rasterRotation,
     );
 
     if (!embeddedImage && slot.hasSourcePage) {
       const placeholderBytes = await createPagePlaceholderPngBytes(
         slot,
-        rotationDegreesValue,
+        rasterRotation,
       );
       const placeholderImage = await pdfDocument.embedPng(placeholderBytes);
       page.drawImage(placeholderImage, {
@@ -663,7 +1067,7 @@ async function drawImpositionSide(
 async function generatePdfOutput() {
   if (!templateMatchesCurrentInputs.value) {
     pdfError.value =
-      "PDF output currently supports only 4 sheets/signature and 4 sheets/output.";
+      "Please use positive whole numbers for sheets per signature and for the output layout.";
     return;
   }
 
@@ -903,14 +1307,73 @@ async function generatePdfOutput() {
                 step="0.1"
               />
             </label>
+          </section>
+        </div>
+
+        <div class="field field-full size-groups">
+          <section class="size-group size-group--gaps">
+            <h3>Gaps</h3>
             <label class="field">
-              <span>Sheets Per Output</span>
+              <span>Vertical gap (in)</span>
               <input
-                v-model.number="sheetsPerOutput"
+                v-model.number="verticalGap"
                 type="number"
-                min="1"
-                step="1"
+                min="0"
+                step="0.01"
               />
+              <small>Between columns of sheets (adds to output width).</small>
+            </label>
+            <label class="field">
+              <span>Horizontal gap (in)</span>
+              <input
+                v-model.number="horizontalGap"
+                type="number"
+                min="0"
+                step="0.01"
+              />
+              <small>Between rows of sheets (adds to output height).</small>
+            </label>
+          </section>
+          <section class="size-group size-group--gaps">
+            <h3>Crop marks</h3>
+            <label class="field">
+              <span>Crop Mark Offset (in)</span>
+              <input
+                v-model.number="cropMarkOffset"
+                type="number"
+                min="0.01"
+                step="0.01"
+              />
+            </label>
+            <label class="field">
+              <span>Crop Mark Length (in)</span>
+              <input
+                v-model.number="cropMarkLength"
+                type="number"
+                min="0.01"
+                step="0.01"
+              />
+            </label>
+          </section>
+          <section class="size-group size-group--gaps">
+            <h3>Sheet orientation</h3>
+            <label class="field">
+              <span>Sheet Orientation (Front, degrees)</span>
+              <select v-model.number="frontRotationDegrees">
+                <option :value="0">0°</option>
+                <option :value="90">90° CW</option>
+                <option :value="-90">90° CCW</option>
+                <option :value="180">180°</option>
+              </select>
+            </label>
+            <label class="field">
+              <span>Sheet Orientation (Back, degrees)</span>
+              <select v-model.number="backRotationDegrees">
+                <option :value="0">0°</option>
+                <option :value="90">90° CW</option>
+                <option :value="-90">90° CCW</option>
+                <option :value="180">180°</option>
+              </select>
             </label>
           </section>
         </div>
@@ -920,6 +1383,12 @@ async function generatePdfOutput() {
 
       <div class="stats">
         <p><strong>Pages per sheet:</strong> {{ pagesPerSheet }}</p>
+        <p>
+          <strong>Sheets per output:</strong> {{ sheetsPerOutputCount }} ({{
+            outputLayoutCols
+          }}
+          × {{ outputLayoutRows }})
+        </p>
         <p><strong>Pages per signature:</strong> {{ pagesPerSignature }}</p>
         <p><strong>Total page capacity:</strong> {{ totalCapacityPages }}</p>
         <p>
@@ -940,7 +1409,143 @@ async function generatePdfOutput() {
       </div> -->
 
       <div class="pdf-output">
-        <h2>Actual-Size PDF Output</h2>
+        <div class="pdf-output-top-row">
+          <div class="pdf-output-controls-column">
+            <div class="field">
+              <span>Fold between page halves (each grid cell)</span>
+              <div class="mode-toggle mode-toggle-inline">
+                <label>
+                  <input
+                    v-model="outputFoldAxis"
+                    type="radio"
+                    value="vertical"
+                  />
+                  Vertical fold (pages left and right)
+                </label>
+                <label>
+                  <input
+                    v-model="outputFoldAxis"
+                    type="radio"
+                    value="horizontal"
+                  />
+                  Horizontal fold (pages stacked)
+                </label>
+              </div>
+              <small
+                >Each grid cell is one physical sheet. Gaps, crop marks, and
+                sheet orientation are in the row under Page / Sheet /
+                Output.</small
+              >
+            </div>
+            <div class="field output-layout-field">
+              <span>Sheets on output (drag cells)</span>
+              <p class="output-layout-summary">
+                {{ outputLayoutCols }}×{{ outputLayoutRows }} ({{
+                  sheetsPerOutputCount
+                }}
+                sheet{{ sheetsPerOutputCount === 1 ? "" : "s" }})
+              </p>
+              <div
+                class="output-layout-grid"
+                role="grid"
+                :aria-label="`Select output layout, currently ${outputLayoutCols} by ${outputLayoutRows}`"
+              >
+                <div
+                  v-for="row in OUTPUT_LAYOUT_GRID_MAX"
+                  :key="`layout-row-${row}`"
+                  class="output-layout-row"
+                >
+                  <button
+                    v-for="col in OUTPUT_LAYOUT_GRID_MAX"
+                    :key="`layout-cell-${row}-${col}`"
+                    type="button"
+                    class="output-layout-cell"
+                    :class="{
+                      'output-layout-cell--preview': layoutCellInDragPreview(
+                        col - 1,
+                        row - 1,
+                      ),
+                      'output-layout-cell--active': layoutCellCommitted(
+                        col - 1,
+                        row - 1,
+                      ),
+                    }"
+                    :aria-pressed="
+                      layoutCellCommitted(col - 1, row - 1) ? 'true' : 'false'
+                    "
+                    @pointerdown="
+                      onOutputLayoutPointerDown(col - 1, row - 1, $event)
+                    "
+                    @pointerenter="onOutputLayoutPointerEnter(col - 1, row - 1)"
+                  />
+                </div>
+              </div>
+              <small
+                >Click or drag to select a rectangle. Each cell is one sheet
+                (two pages touch at the fold). Spacing between cells uses the
+                gaps in the row under Page / Sheet / Output.</small
+              >
+            </div>
+          </div>
+          <div class="pdf-output-preview-column">
+            <h2>Actual-Size PDF Output</h2>
+            <div class="layout-preview">
+              <svg
+                class="layout-preview-svg"
+                :viewBox="`0 0 ${layoutPreview.outputWidth} ${layoutPreview.outputHeight}`"
+                role="img"
+                aria-label="Layout preview for sheets on output sheet"
+              >
+                <rect
+                  x="0"
+                  y="0"
+                  :width="layoutPreview.outputWidth"
+                  :height="layoutPreview.outputHeight"
+                  class="preview-output-boundary"
+                />
+                <g
+                  v-for="(sheet, index) in layoutPreview.sheets"
+                  :key="`sheet-preview-${index}`"
+                >
+                  <rect
+                    :x="sheet.pageA.x"
+                    :y="sheet.pageA.y"
+                    :width="sheet.pageA.width"
+                    :height="sheet.pageA.height"
+                    class="preview-sheet"
+                  />
+                  <rect
+                    :x="sheet.pageB.x"
+                    :y="sheet.pageB.y"
+                    :width="sheet.pageB.width"
+                    :height="sheet.pageB.height"
+                    class="preview-sheet"
+                  />
+                </g>
+              </svg>
+              <p class="note">
+                Output: {{ formatInchesLabel(layoutPreview.outputWidth) }}" x
+                {{ formatInchesLabel(layoutPreview.outputHeight) }}" | Required:
+                {{ formatInchesLabel(layoutPreview.requiredWidth) }}" x
+                {{ formatInchesLabel(layoutPreview.requiredHeight) }}"
+              </p>
+              <p class="note">
+                Sheet footprint:
+                {{ formatInchesLabel(layoutPreview.sheetLayoutWidth) }}" x
+                {{ formatInchesLabel(layoutPreview.sheetLayoutHeight) }}" (front
+                orientation). Fold:
+                {{
+                  layoutPreview.foldHorizontal
+                    ? "horizontal (stacked)"
+                    : "vertical (left and right)"
+                }}
+                . Between columns:
+                {{ formatInchesLabel(layoutPreview.gapBetweenCols) }}"; between
+                rows: {{ formatInchesLabel(layoutPreview.gapBetweenRows) }}".
+              </p>
+            </div>
+          </div>
+        </div>
         <p class="note" :class="{ 'warning-inline': !layoutFit.fits }">
           Required layout size (current rotation):
           {{ layoutFit.requiredWidth.toFixed(2) }}" x
@@ -953,71 +1558,6 @@ async function generatePdfOutput() {
           causes clipped scaling/crop marks. Reduce page size, rotation
           footprint, or gap values.
         </p>
-
-        <div class="pdf-controls">
-          <label class="field">
-            <span>Sheet Orientation (Front, degrees)</span>
-            <select v-model.number="frontRotationDegrees">
-              <option :value="0">0°</option>
-              <option :value="90">90° CW</option>
-              <option :value="-90">90° CCW</option>
-              <option :value="180">180°</option>
-            </select>
-          </label>
-
-          <label class="field">
-            <span>Sheet Orientation (Back, degrees)</span>
-            <select v-model.number="backRotationDegrees">
-              <option :value="0">0°</option>
-              <option :value="90">90° CW</option>
-              <option :value="-90">90° CCW</option>
-              <option :value="180">180°</option>
-            </select>
-          </label>
-
-          <label class="field">
-            <span>Crop Mark Offset (in)</span>
-            <input
-              v-model.number="cropMarkOffset"
-              type="number"
-              min="0.01"
-              step="0.01"
-            />
-          </label>
-
-          <label class="field">
-            <span>Crop Mark Length (in)</span>
-            <input
-              v-model.number="cropMarkLength"
-              type="number"
-              min="0.01"
-              step="0.01"
-            />
-          </label>
-
-          <label class="field">
-            <span>Horizontal Gap (in)</span>
-            <input
-              v-model.number="horizontalGap"
-              type="number"
-              min="0"
-              step="0.01"
-            />
-          </label>
-
-          <label class="field">
-            <span>Vertical Gap (in)</span>
-            <input
-              v-model.number="verticalGap"
-              type="number"
-              min="0"
-              step="0.01"
-            />
-            <small
-              >Applied only between sheet rows, not at the fold center.</small
-            >
-          </label>
-        </div>
 
         <div class="actions">
           <button
