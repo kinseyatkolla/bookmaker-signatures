@@ -109,6 +109,12 @@ h1 {
   gap: 0.65rem;
 }
 
+.size-group--summary .stats--summary {
+  grid-template-columns: 1fr;
+  gap: 0.35rem;
+  font-size: 0.88rem;
+}
+
 .output-layout-field {
   gap: 0.35rem;
 }

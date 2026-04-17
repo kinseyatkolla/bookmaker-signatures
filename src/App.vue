@@ -28,8 +28,9 @@ const OUTPUT_LAYOUT_GRID_MAX = 8;
 const layoutSelectDragging = ref(false);
 const layoutSelectAnchor = ref({ col: 0, row: 0 });
 const layoutSelectEnd = ref({ col: 0, row: 0 });
-const frontRotationDegrees = ref(90);
-const backRotationDegrees = ref(-90);
+/** Fixed plate rotation for slot sizing and PDF imposition (baked into layout math). */
+const PLATE_FRONT_ROTATION_DEG = 90;
+const PLATE_BACK_ROTATION_DEG = -90;
 
 /** Added to plate rotation when rasterizing page art for PDF (slot sizing still uses plate angles). */
 function impositionRasterRotationDegrees(plateRotationDegrees) {
@@ -352,43 +353,36 @@ const impositionOutputs = computed(() => {
 
   const pattern = getOutputLayoutPattern();
   const normalizedSheetsPerOutput = pattern.sheetCols * pattern.sheetRows;
-  const outputs = [];
+  const allPhysicalSheets = [];
 
   for (
     let signatureIndex = 0;
     signatureIndex < numberOfSignatures.value;
     signatureIndex += 1
   ) {
-    const signatureSheets = buildSignatureSheets(signatureIndex);
-    const outputCountForSignature = Math.ceil(
-      signatureSheets.length / normalizedSheetsPerOutput,
-    );
+    allPhysicalSheets.push(...buildSignatureSheets(signatureIndex));
+  }
 
-    for (
-      let outputIndex = 0;
-      outputIndex < outputCountForSignature;
-      outputIndex += 1
-    ) {
-      const start = outputIndex * normalizedSheetsPerOutput;
-      const end = start + normalizedSheetsPerOutput;
-      const outputSheets = signatureSheets.slice(start, end);
-      const frontSheets = layoutSheetsOnOutputGrid(
-        outputSheets,
-        "front",
-        pattern,
-      );
-      const backSheets = layoutSheetsOnOutputGrid(
-        outputSheets,
-        "back",
-        pattern,
-      );
-      outputs.push({
-        signatureNumber: signatureIndex + 1,
-        outputNumberWithinSignature: outputIndex + 1,
-        front: placeSheetsOnOutputSheet(frontSheets, "front", pattern),
-        back: placeSheetsOnOutputSheet(backSheets, "back", pattern),
-      });
-    }
+  const outputCount = Math.ceil(
+    allPhysicalSheets.length / normalizedSheetsPerOutput,
+  );
+  const outputs = [];
+
+  for (let outputIndex = 0; outputIndex < outputCount; outputIndex += 1) {
+    const start = outputIndex * normalizedSheetsPerOutput;
+    const end = start + normalizedSheetsPerOutput;
+    const outputSheets = allPhysicalSheets.slice(start, end);
+    const frontSheets = layoutSheetsOnOutputGrid(
+      outputSheets,
+      "front",
+      pattern,
+    );
+    const backSheets = layoutSheetsOnOutputGrid(outputSheets, "back", pattern);
+    outputs.push({
+      plateNumber: outputIndex + 1,
+      front: placeSheetsOnOutputSheet(frontSheets, "front", pattern),
+      back: placeSheetsOnOutputSheet(backSheets, "back", pattern),
+    });
   }
 
   return outputs;
@@ -398,8 +392,8 @@ function getRequiredLayoutForOutput() {
   const pattern = getOutputLayoutPattern();
   const gapBetweenCols = Math.max(0, Number(verticalGap.value));
   const gapBetweenRows = Math.max(0, Number(horizontalGap.value));
-  const frontSlot = getLayoutSlotForGridInches(frontRotationDegrees.value);
-  const backSlot = getLayoutSlotForGridInches(backRotationDegrees.value);
+  const frontSlot = getLayoutSlotForGridInches(PLATE_FRONT_ROTATION_DEG);
+  const backSlot = getLayoutSlotForGridInches(PLATE_BACK_ROTATION_DEG);
   const slot = {
     width: Math.max(frontSlot.width, backSlot.width),
     height: Math.max(frontSlot.height, backSlot.height),
@@ -463,8 +457,8 @@ const sheetPatternPreview = computed(() => {
 const layoutPreview = computed(() => {
   const pattern = getOutputLayoutPattern();
   const normalizedSheetsPerOutput = pattern.sheetCols * pattern.sheetRows;
-  const frontSlot = getLayoutSlotForGridInches(frontRotationDegrees.value);
-  const backSlot = getLayoutSlotForGridInches(backRotationDegrees.value);
+  const frontSlot = getLayoutSlotForGridInches(PLATE_FRONT_ROTATION_DEG);
+  const backSlot = getLayoutSlotForGridInches(PLATE_BACK_ROTATION_DEG);
   const slot = {
     width: Math.max(frontSlot.width, backSlot.width),
     height: Math.max(frontSlot.height, backSlot.height),
@@ -998,7 +992,8 @@ async function drawImpositionSide(
       },
     );
 
-    const rasterRotation = impositionRasterRotationDegrees(rotationDegreesValue);
+    const rasterRotation =
+      impositionRasterRotationDegrees(rotationDegreesValue);
 
     if (!slot.file && slot.hasSourcePage) {
       const placeholderBytes = await createPagePlaceholderPngBytes(
@@ -1093,13 +1088,13 @@ async function generatePdfOutput() {
         firstOutputSheetPage,
         pdf,
         output.back,
-        backRotationDegrees.value,
+        PLATE_BACK_ROTATION_DEG,
       );
       await drawImpositionSide(
         secondOutputSheetPage,
         pdf,
         output.front,
-        frontRotationDegrees.value,
+        PLATE_FRONT_ROTATION_DEG,
       );
     }
 
@@ -1321,7 +1316,6 @@ async function generatePdfOutput() {
                 min="0"
                 step="0.01"
               />
-              <small>Between columns of sheets (adds to output width).</small>
             </label>
             <label class="field">
               <span>Horizontal gap (in)</span>
@@ -1331,7 +1325,6 @@ async function generatePdfOutput() {
                 min="0"
                 step="0.01"
               />
-              <small>Between rows of sheets (adds to output height).</small>
             </label>
           </section>
           <section class="size-group size-group--gaps">
@@ -1355,51 +1348,32 @@ async function generatePdfOutput() {
               />
             </label>
           </section>
-          <section class="size-group size-group--gaps">
-            <h3>Sheet orientation</h3>
-            <label class="field">
-              <span>Sheet Orientation (Front, degrees)</span>
-              <select v-model.number="frontRotationDegrees">
-                <option :value="0">0°</option>
-                <option :value="90">90° CW</option>
-                <option :value="-90">90° CCW</option>
-                <option :value="180">180°</option>
-              </select>
-            </label>
-            <label class="field">
-              <span>Sheet Orientation (Back, degrees)</span>
-              <select v-model.number="backRotationDegrees">
-                <option :value="0">0°</option>
-                <option :value="90">90° CW</option>
-                <option :value="-90">90° CCW</option>
-                <option :value="180">180°</option>
-              </select>
-            </label>
+          <section class="size-group size-group--summary">
+            <h3>Imposition summary</h3>
+            <div class="stats stats--summary">
+              <p>
+                <strong>Sheets per output:</strong>
+                {{ sheetsPerOutputCount }} ({{ outputLayoutCols }} ×
+                {{ outputLayoutRows }})
+              </p>
+              <p>
+                <strong>Pages per signature:</strong> {{ pagesPerSignature }}
+              </p>
+              <p>
+                <strong>Total page capacity:</strong> {{ totalCapacityPages }}
+              </p>
+              <p>
+                <strong>Input page source:</strong>
+                {{
+                  usingManualPageCount
+                    ? `Manual (${effectivePageCount} pages)`
+                    : `Uploaded images (${effectivePageCount} pages)`
+                }}
+              </p>
+              <p><strong>Blank pages needed:</strong> {{ blankPagesNeeded }}</p>
+            </div>
           </section>
         </div>
-      </div>
-
-      <hr />
-
-      <div class="stats">
-        <p><strong>Pages per sheet:</strong> {{ pagesPerSheet }}</p>
-        <p>
-          <strong>Sheets per output:</strong> {{ sheetsPerOutputCount }} ({{
-            outputLayoutCols
-          }}
-          × {{ outputLayoutRows }})
-        </p>
-        <p><strong>Pages per signature:</strong> {{ pagesPerSignature }}</p>
-        <p><strong>Total page capacity:</strong> {{ totalCapacityPages }}</p>
-        <p>
-          <strong>Input page source:</strong>
-          {{
-            usingManualPageCount
-              ? `Manual (${effectivePageCount} pages)`
-              : `Uploaded images (${effectivePageCount} pages)`
-          }}
-        </p>
-        <p><strong>Blank pages needed:</strong> {{ blankPagesNeeded }}</p>
       </div>
 
       <hr />
@@ -1432,9 +1406,8 @@ async function generatePdfOutput() {
                 </label>
               </div>
               <small
-                >Each grid cell is one physical sheet. Gaps, crop marks, and
-                sheet orientation are in the row under Page / Sheet /
-                Output.</small
+                >Each grid cell is one physical sheet. Gaps and crop marks are
+                in the row under Page / Sheet / Output.</small
               >
             </div>
             <div class="field output-layout-field">
@@ -1532,8 +1505,7 @@ async function generatePdfOutput() {
               <p class="note">
                 Sheet footprint:
                 {{ formatInchesLabel(layoutPreview.sheetLayoutWidth) }}" x
-                {{ formatInchesLabel(layoutPreview.sheetLayoutHeight) }}" (front
-                orientation). Fold:
+                {{ formatInchesLabel(layoutPreview.sheetLayoutHeight) }}". Fold:
                 {{
                   layoutPreview.foldHorizontal
                     ? "horizontal (stacked)"
@@ -1547,7 +1519,7 @@ async function generatePdfOutput() {
           </div>
         </div>
         <p class="note" :class="{ 'warning-inline': !layoutFit.fits }">
-          Required layout size (current rotation):
+          Required layout size:
           {{ layoutFit.requiredWidth.toFixed(2) }}" x
           {{ layoutFit.requiredHeight.toFixed(2) }}". Output page:
           {{ layoutFit.outputWidth.toFixed(2) }}" x
@@ -1555,8 +1527,8 @@ async function generatePdfOutput() {
         </p>
         <p v-if="!layoutFit.fits" class="warning">
           This combination overflows the output page at actual size, which
-          causes clipped scaling/crop marks. Reduce page size, rotation
-          footprint, or gap values.
+          causes clipped scaling/crop marks. Reduce page size, sheet footprint,
+          or gap values.
         </p>
 
         <div class="actions">
