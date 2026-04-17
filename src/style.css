@@ -14,11 +14,73 @@ body {
   margin: 0;
 }
 
+.app-shell {
+  min-height: 100vh;
+  display: flex;
+  flex-direction: column;
+}
+
+.app-header {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.75rem 1.25rem;
+  padding: 0.85rem 1.25rem;
+  background: #ffffff;
+  border-bottom: 1px solid #e6e6e7;
+  position: sticky;
+  top: 0;
+  z-index: 10;
+}
+
+.app-brand {
+  font-size: 1.15rem;
+  font-weight: 700;
+  color: #1d1d1f;
+  text-decoration: none;
+}
+
+.app-brand:hover {
+  color: #31313a;
+}
+
+.app-nav {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.35rem 0.5rem;
+  align-items: center;
+}
+
+.nav-link {
+  padding: 0.4rem 0.75rem;
+  border-radius: 8px;
+  font-size: 0.92rem;
+  font-weight: 600;
+  color: #4a4a4f;
+  text-decoration: none;
+}
+
+.nav-link:hover {
+  background: #f0f0f2;
+  color: #1d1d1f;
+}
+
+.nav-link.router-link-active {
+  background: #e8e9f4;
+  color: #1d1d1f;
+}
+
 .page {
   min-height: 100vh;
   padding: 2rem 1rem;
   display: grid;
   place-items: center;
+}
+
+.app-shell .page {
+  flex: 1;
+  min-height: 0;
 }
 
 .card {
@@ -28,6 +90,10 @@ body {
   border-radius: 14px;
   padding: 1.5rem;
   box-shadow: 0 8px 30px rgba(17, 24, 39, 0.08);
+}
+
+.card--placeholder {
+  max-width: 560px;
 }
 
 h1 {
