@@ -1,6 +1,8 @@
 <script setup>
 import { computed, ref } from "vue";
 import { PDFDocument, rgb } from "pdf-lib";
+import zine1Photo from "../zine1.jpg";
+import zine1InfoImg from "../zine1info.png";
 
 /** Portrait letter 8.5×11: 2 cols × 4 rows, no gaps. Each cell 4.25×2.75 in. */
 const OUTPUT_WIDTH_IN = 8.5;
@@ -350,11 +352,22 @@ function downloadPdf() {
 <template>
   <main class="page">
     <section class="card zine8-card">
-      <h1>Folded Zine 1</h1>
+      <h1>Folded Zine</h1>
       <p class="subtitle">
         Eight pages on one portrait 8.5″×11″ sheet (single-sided), 2 columns × 4
         rows. Each panel is 2.75″×4.25″ with no gaps.
       </p>
+
+      <img
+        :src="zine1Photo"
+        alt="Single-sheet 8-panel zine layout"
+        class="zine1-intro-img"
+      />
+      <img
+        :src="zine1InfoImg"
+        alt="Folding reference for this zine"
+        class="zine1-intro-img"
+      />
 
       <div class="grid">
         <label class="field">
@@ -450,20 +463,39 @@ function downloadPdf() {
 <style scoped>
 .zine8-card {
   width: min(920px, 100%);
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  column-gap: 1rem;
 }
 
-.checkbox-field {
-  flex-direction: row;
-  align-items: flex-start;
-  gap: 0.5rem;
+.zine8-card > h1,
+.zine8-card > .subtitle,
+.zine8-card > .grid,
+.zine8-card > .actions,
+.zine8-card > .download-group,
+.zine8-card > .pdf-preview-single {
+  grid-column: 1 / -1;
 }
 
-.checkbox-field input {
-  margin-top: 0.2rem;
+.zine1-intro-img {
+  display: block;
+  width: 100%;
+  min-width: 0;
+  height: clamp(10rem, 26vw, 18rem);
+  margin-bottom: 1.5rem;
+  object-fit: contain;
 }
 
-.checkbox-field span {
-  font-weight: 500;
-  font-size: 0.92rem;
+@media (max-width: 540px) {
+  .zine8-card {
+    grid-template-columns: 1fr;
+  }
+
+  .zine8-card > .zine1-intro-img {
+    grid-column: 1 / -1;
+    height: auto;
+    max-height: min(50vh, 22rem);
+  }
 }
+
 </style>

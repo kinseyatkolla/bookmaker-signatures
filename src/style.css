@@ -127,6 +127,21 @@ h1 {
   font-weight: 600;
 }
 
+.field.checkbox-field {
+  flex-direction: row;
+  align-items: flex-start;
+  gap: 0.5rem;
+}
+
+.field.checkbox-field input[type="checkbox"] {
+  margin-top: 0.2rem;
+}
+
+.field.checkbox-field span {
+  font-weight: 500;
+  font-size: 0.92rem;
+}
+
 .mode-toggle {
   display: grid;
   gap: 0.35rem;

@@ -37,6 +37,7 @@ function impositionRasterRotationDegrees(plateRotationDegrees) {
 }
 const cropMarkOffset = ref(0.08);
 const cropMarkLength = ref(0.18);
+const showCropMarks = ref(true);
 /** Space between sheet rows on the output (adds to total layout height). */
 const horizontalGap = ref(0.08);
 /** Space between sheet columns on the output (adds to total layout width). */
@@ -974,21 +975,23 @@ async function drawImpositionSide(
       ? sheetCol === sheetCols - 1
       : sheetCol === sheetCols - 1 && pageIndexWithinSheet === 1;
 
-    drawCropMarks(
-      page,
-      x,
-      y,
-      slotWidthPoints,
-      slotHeightPoints,
-      markOffsetPoints,
-      markLengthPoints,
-      {
-        top: cropTop,
-        bottom: cropBottom,
-        left: cropLeft,
-        right: cropRight,
-      },
-    );
+    if (showCropMarks.value) {
+      drawCropMarks(
+        page,
+        x,
+        y,
+        slotWidthPoints,
+        slotHeightPoints,
+        markOffsetPoints,
+        markLengthPoints,
+        {
+          top: cropTop,
+          bottom: cropBottom,
+          left: cropLeft,
+          right: cropRight,
+        },
+      );
+    }
 
     const rasterRotation = foldHorizontal
       ? impositionRasterRotationDegrees(rotationDegreesValue)
@@ -1113,76 +1116,13 @@ async function generatePdfOutput() {
 <template>
   <main class="page">
     <section class="card">
-      <h1>Signatures</h1>
+      <h1>Signature Imposition</h1>
       <p class="subtitle">
         Upload sequential page images, set layout variables, and prepare
         signature imposition for printing.
       </p>
 
       <div class="grid">
-        <label class="field">
-          <span>Page Images Folder</span>
-          <input
-            type="file"
-            webkitdirectory
-            directory
-            multiple
-            accept="image/*"
-            @change="onFolderUpload"
-          />
-          <small
-            >Select a folder that contains your sequential page images.</small
-          >
-        </label>
-
-        <label class="field">
-          <span>Or Select Image Files Directly</span>
-          <input
-            type="file"
-            multiple
-            accept=".png,.jpg,.jpeg,.webp,.gif,.tif,.tiff,.bmp,image/*"
-            @change="onFileUpload"
-          />
-          <small
-            >Use this if your numbered PNGs are in a list and not a folder
-            upload.</small
-          >
-          <small
-            >{{ uploadedPageCount }} image page{{
-              uploadedPageCount === 1 ? "" : "s"
-            }}
-            detected</small
-          >
-          <small v-if="formattedFilePreview.length > 0">
-            Preview: {{ formattedFilePreview.join(", ")
-            }}{{ uploadedPageCount > 6 ? "..." : "" }}
-          </small>
-        </label>
-
-        <label class="field field-full">
-          <span>Number of Pages (used when no images are uploaded)</span>
-          <input
-            :value="numberOfPages"
-            type="number"
-            min="0"
-            step="1"
-            :disabled="uploadedPageCount > 0"
-            @input="onNumberOfPagesInput"
-          />
-          <small v-if="uploadedPageCount > 0">
-            Disabled while images are uploaded (using
-            {{ uploadedPageCount }} uploaded page{{
-              uploadedPageCount === 1 ? "" : "s"
-            }}
-            instead).
-          </small>
-          <small v-else>
-            Generating placeholders for {{ effectivePageCount }} page{{
-              effectivePageCount === 1 ? "" : "s"
-            }}.
-          </small>
-        </label>
-
         <div class="field field-full">
           <span>Signature Calculation Mode</span>
           <div class="mode-toggle">
@@ -1241,7 +1181,8 @@ async function generatePdfOutput() {
                 @input="onSheetsPerSignatureInput"
               />
               <small v-if="signatureCalcMode === 'signatures-fixed'"
-                >Auto-calculated from uploaded pages and fixed signatures.</small
+                >Auto-calculated from uploaded pages and fixed
+                signatures.</small
               >
             </label>
             <label class="field">
@@ -1308,6 +1249,14 @@ async function generatePdfOutput() {
           </section>
           <section class="size-group size-group--gaps">
             <h3>Crop marks</h3>
+            <label class="field checkbox-field" for="show-crop-marks">
+              <input
+                id="show-crop-marks"
+                v-model="showCropMarks"
+                type="checkbox"
+              />
+              <span>Show crop marks</span>
+            </label>
             <label class="field">
               <span>Crop Mark Offset (in)</span>
               <input
@@ -1315,6 +1264,7 @@ async function generatePdfOutput() {
                 type="number"
                 min="0.01"
                 step="0.01"
+                :disabled="!showCropMarks"
               />
             </label>
             <label class="field">
@@ -1324,10 +1274,34 @@ async function generatePdfOutput() {
                 type="number"
                 min="0.01"
                 step="0.01"
+                :disabled="!showCropMarks"
               />
             </label>
           </section>
           <section class="size-group size-group--summary">
+            <label class="field">
+              <span>Number of Pages (used when no images are uploaded)</span>
+              <input
+                :value="numberOfPages"
+                type="number"
+                min="0"
+                step="1"
+                :disabled="uploadedPageCount > 0"
+                @input="onNumberOfPagesInput"
+              />
+              <small v-if="uploadedPageCount > 0">
+                Disabled while images are uploaded (using
+                {{ uploadedPageCount }} uploaded page{{
+                  uploadedPageCount === 1 ? "" : "s"
+                }}
+                instead).
+              </small>
+              <small v-else>
+                Generating placeholders for {{ effectivePageCount }} page{{
+                  effectivePageCount === 1 ? "" : "s"
+                }}.
+              </small>
+            </label>
             <h3>Imposition summary</h3>
             <div class="stats stats--summary">
               <p>
@@ -1497,18 +1471,52 @@ async function generatePdfOutput() {
             </div>
           </div>
         </div>
-        <p class="note" :class="{ 'warning-inline': !layoutFit.fits }">
-          Required layout size:
-          {{ layoutFit.requiredWidth.toFixed(2) }}" x
-          {{ layoutFit.requiredHeight.toFixed(2) }}". Output page:
-          {{ layoutFit.outputWidth.toFixed(2) }}" x
-          {{ layoutFit.outputHeight.toFixed(2) }}".
-        </p>
         <p v-if="!layoutFit.fits" class="warning">
           This combination overflows the output page at actual size, which
           causes clipped scaling/crop marks. Reduce page size, sheet footprint,
           or gap values.
         </p>
+
+        <div class="grid" style="margin-top: 1rem">
+          <label class="field">
+            <span>Page Images Folder</span>
+            <input
+              type="file"
+              webkitdirectory
+              directory
+              multiple
+              accept="image/*"
+              @change="onFolderUpload"
+            />
+            <small
+              >Select a folder that contains your sequential page images.</small
+            >
+          </label>
+
+          <label class="field">
+            <span>Or Select Image Files Directly</span>
+            <input
+              type="file"
+              multiple
+              accept=".png,.jpg,.jpeg,.webp,.gif,.tif,.tiff,.bmp,image/*"
+              @change="onFileUpload"
+            />
+            <small
+              >Use this if your numbered PNGs are in a list and not a folder
+              upload.</small
+            >
+            <small
+              >{{ uploadedPageCount }} image page{{
+                uploadedPageCount === 1 ? "" : "s"
+              }}
+              detected</small
+            >
+            <small v-if="formattedFilePreview.length > 0">
+              Preview: {{ formattedFilePreview.join(", ")
+              }}{{ uploadedPageCount > 6 ? "..." : "" }}
+            </small>
+          </label>
+        </div>
 
         <div class="actions">
           <button
