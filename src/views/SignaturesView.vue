@@ -11,8 +11,6 @@ const outputWidth = ref(8.5);
 const outputHeight = ref(11);
 const pageWidth = ref(2.5);
 const pageHeight = ref(3.5);
-const sheetWidth = ref(5);
-const sheetHeight = ref(3.5);
 /** User-defined output grid: this many sheets per output page (cols × rows). */
 const outputLayoutCols = ref(2);
 const outputLayoutRows = ref(2);
@@ -992,8 +990,9 @@ async function drawImpositionSide(
       },
     );
 
-    const rasterRotation =
-      impositionRasterRotationDegrees(rotationDegreesValue);
+    const rasterRotation = foldHorizontal
+      ? impositionRasterRotationDegrees(rotationDegreesValue)
+      : 0;
 
     if (!slot.file && slot.hasSourcePage) {
       const placeholderBytes = await createPagePlaceholderPngBytes(
@@ -1206,37 +1205,6 @@ async function generatePdfOutput() {
           </div>
         </div>
 
-        <label class="field">
-          <span>Sheets Per Signature</span>
-          <input
-            :value="sheetsPerSignature"
-            type="number"
-            min="1"
-            step="1"
-            :disabled="signatureCalcMode === 'signatures-fixed'"
-            @input="onSheetsPerSignatureInput"
-          />
-          <small v-if="signatureCalcMode === 'signatures-fixed'"
-            >Auto-calculated from uploaded pages and fixed signatures.</small
-          >
-        </label>
-
-        <div class="field">
-          <span>Number of Signatures</span>
-          <input
-            :value="numberOfSignatures"
-            type="number"
-            min="1"
-            step="1"
-            :disabled="signatureCalcMode === 'sheets-fixed'"
-            @input="onNumberOfSignaturesInput"
-          />
-          <small v-if="signatureCalcMode === 'sheets-fixed'"
-            >Auto-calculated from uploaded pages and fixed sheets per
-            signature.</small
-          >
-        </div>
-
         <div class="field field-full size-groups">
           <section class="size-group">
             <h3>Page</h3>
@@ -1261,24 +1229,35 @@ async function generatePdfOutput() {
           </section>
 
           <section class="size-group">
-            <h3>Sheet</h3>
+            <h3>Signatures</h3>
             <label class="field">
-              <span>Width (inches)</span>
+              <span>Sheets Per Signature</span>
               <input
-                v-model.number="sheetWidth"
+                :value="sheetsPerSignature"
                 type="number"
-                min="0.1"
-                step="0.1"
+                min="1"
+                step="1"
+                :disabled="signatureCalcMode === 'signatures-fixed'"
+                @input="onSheetsPerSignatureInput"
               />
+              <small v-if="signatureCalcMode === 'signatures-fixed'"
+                >Auto-calculated from uploaded pages and fixed signatures.</small
+              >
             </label>
             <label class="field">
-              <span>Height (inches)</span>
+              <span>Number of Signatures</span>
               <input
-                v-model.number="sheetHeight"
+                :value="numberOfSignatures"
                 type="number"
-                min="0.1"
-                step="0.1"
+                min="1"
+                step="1"
+                :disabled="signatureCalcMode === 'sheets-fixed'"
+                @input="onNumberOfSignaturesInput"
               />
+              <small v-if="signatureCalcMode === 'sheets-fixed'"
+                >Auto-calculated from uploaded pages and fixed sheets per
+                signature.</small
+              >
             </label>
           </section>
 
@@ -1407,7 +1386,7 @@ async function generatePdfOutput() {
               </div>
               <small
                 >Each grid cell is one physical sheet. Gaps and crop marks are
-                in the row under Page / Sheet / Output.</small
+                in the row under Page / Signatures / Output.</small
               >
             </div>
             <div class="field output-layout-field">
@@ -1456,7 +1435,7 @@ async function generatePdfOutput() {
               <small
                 >Click or drag to select a rectangle. Each cell is one sheet
                 (two pages touch at the fold). Spacing between cells uses the
-                gaps in the row under Page / Sheet / Output.</small
+                gaps in the row under Page / Signatures / Output.</small
               >
             </div>
           </div>

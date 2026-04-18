@@ -353,7 +353,7 @@ function downloadPdf() {
       <h1>Folded Zine 1</h1>
       <p class="subtitle">
         Eight pages on one portrait 8.5″×11″ sheet (single-sided), 2 columns × 4
-        rows. Each panel is 4.25″×2.75″ with no gaps.
+        rows. Each panel is 2.75″×4.25″ with no gaps.
       </p>
 
       <div class="grid">
@@ -413,8 +413,8 @@ function downloadPdf() {
         <label class="field field-full checkbox-field">
           <input id="cut-guide" v-model="showCenterCutGuide" type="checkbox" />
           <span
-            >Include vertical center cut guide (5.5″ dashed line, centered on the
-            sheet)</span
+            >Include vertical center cut guide (5.5″ dashed line, centered on
+            the sheet)</span
           >
         </label>
       </div>
