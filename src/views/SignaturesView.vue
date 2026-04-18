@@ -249,7 +249,9 @@ function buildSheetSlot(signatureOffset, relativePageNumber) {
 
 /**
  * Zigzag nesting: sheet index 0 is outer (high|low), last index innermost.
- * Front pair high|low; back pair (high-1)|(low+1) left-to-right on the sheet.
+ * Front pair high|low. Back pair order depends on fold axis: vertical fold places
+ * page halves left|right, so verso reads (low+1)|(high-1); horizontal fold stacks
+ * halves, so verso keeps (high-1) above (low+1) in slot order for duplex.
  */
 function buildSignatureSheets(signatureIndex) {
   const signatureSheetCount = normalizePositiveInteger(
@@ -258,10 +260,13 @@ function buildSignatureSheets(signatureIndex) {
   );
   const signaturePageCount = signatureSheetCount * pagesPerSheet;
   const signatureOffset = signatureIndex * signaturePageCount;
+  const foldVertical = outputFoldAxis.value === "vertical";
 
   return Array.from({ length: signatureSheetCount }, (_, sheetIndex) => {
     const lowPage = sheetIndex * 2 + 1;
     const highPage = signaturePageCount - sheetIndex * 2;
+    const versoFirst = foldVertical ? lowPage + 1 : highPage - 1;
+    const versoSecond = foldVertical ? highPage - 1 : lowPage + 1;
 
     return {
       sheetNumber: sheetIndex + 1,
@@ -270,8 +275,8 @@ function buildSignatureSheets(signatureIndex) {
         buildSheetSlot(signatureOffset, lowPage),
       ],
       back: [
-        buildSheetSlot(signatureOffset, highPage - 1),
-        buildSheetSlot(signatureOffset, lowPage + 1),
+        buildSheetSlot(signatureOffset, versoFirst),
+        buildSheetSlot(signatureOffset, versoSecond),
       ],
     };
   });
@@ -279,7 +284,7 @@ function buildSignatureSheets(signatureIndex) {
 
 /**
  * Maps physical sheets (sequential after zigzag build) onto output grid cells.
- * Front: each row right-to-left, rows top-to-bottom. Back: left-to-right, top-to-bottom.
+ * Front: each row right-to-left. Back: left-to-right, rows top-to-bottom.
  * Row-major sheetIndex is row * cols + col (matches placeSheetsOnOutputSheet).
  */
 function layoutSheetsOnOutputGrid(physicalSheets, side, pattern) {
@@ -371,11 +376,7 @@ const impositionOutputs = computed(() => {
     const start = outputIndex * normalizedSheetsPerOutput;
     const end = start + normalizedSheetsPerOutput;
     const outputSheets = allPhysicalSheets.slice(start, end);
-    const frontSheets = layoutSheetsOnOutputGrid(
-      outputSheets,
-      "front",
-      pattern,
-    );
+    const frontSheets = layoutSheetsOnOutputGrid(outputSheets, "front", pattern);
     const backSheets = layoutSheetsOnOutputGrid(outputSheets, "back", pattern);
     outputs.push({
       plateNumber: outputIndex + 1,
