@@ -4,11 +4,17 @@ import FoldedZine1View from "../views/FoldedZine1View.vue";
 import FoldedZine2View from "../views/FoldedZine2View.vue";
 import CalendarsView from "../views/CalendarsView.vue";
 import BasicCalendarView from "../views/BasicCalendarView.vue";
+import BasicDailyAstrologyCalendarView from "../views/BasicDailyAstrologyCalendarView.vue";
 
 const routes = [
   { path: "/", name: "signatures", component: SignaturesView },
   { path: "/calendars", name: "calendars", component: CalendarsView },
   { path: "/calendars/basic", name: "calendars-basic", component: BasicCalendarView },
+  {
+    path: "/calendars/basic-daily-astrology",
+    name: "calendars-basic-daily-astrology",
+    component: BasicDailyAstrologyCalendarView,
+  },
   { path: "/folded-zine-1", name: "folded-zine-1", component: FoldedZine1View },
   { path: "/folded-zine-2", name: "folded-zine-2", component: FoldedZine2View },
 ];

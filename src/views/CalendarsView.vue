@@ -8,6 +8,12 @@
       <RouterLink class="primary-button calendars-nav-button" to="/calendars/basic">
         Basic Calendar
       </RouterLink>
+      <RouterLink
+        class="primary-button calendars-nav-button"
+        to="/calendars/basic-daily-astrology"
+      >
+        Basic Daily Astrology Calendar
+      </RouterLink>
     </section>
   </main>
 </template>
