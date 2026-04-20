@@ -927,14 +927,30 @@ async function generatePdfOutput() {
   }
 }
 
-const pagesSectionStyle = computed(() => ({
-  "--calendar-page-aspect-w": String(
-    Math.max(0.1, Number(pageWidth.value) || 2.5),
-  ),
-  "--calendar-page-aspect-h": String(
-    Math.max(0.1, Number(pageHeight.value) || 3.5),
-  ),
-}));
+function buildCalendarPagesPreviewStyle() {
+  const w = Math.max(0.1, Number(pageWidth.value) || 2.5);
+  const h = Math.max(0.1, Number(pageHeight.value) || 3.5);
+  let gridTemplateColumns;
+  if (w >= 8) {
+    gridTemplateColumns = "minmax(0, 1fr)";
+  } else if (w >= 4.25) {
+    gridTemplateColumns = "repeat(2, minmax(0, 1fr))";
+  } else {
+    gridTemplateColumns = "repeat(auto-fill, minmax(220px, 1fr))";
+  }
+  return {
+    "--calendar-page-aspect-w": String(w),
+    "--calendar-page-aspect-h": String(h),
+    gridTemplateColumns,
+  };
+}
+
+/** Inline grid + aspect vars; kept in a ref and synced via watch so DOM tracks page size inputs. */
+const calendarPagesPreviewStyle = ref(buildCalendarPagesPreviewStyle());
+
+watch([pageWidth, pageHeight], () => {
+  calendarPagesPreviewStyle.value = buildCalendarPagesPreviewStyle();
+});
 
 const astrologyTimeframeLabel = computed(() => {
   const start = parseDateInput(startDate.value);
@@ -1252,7 +1268,7 @@ function toDateInputValue(date) {
           Each card matches the page aspect ratio and is rasterized at PDF
           generation.
         </p>
-        <div class="calendar-pages-grid" :style="pagesSectionStyle">
+        <div class="calendar-pages-grid" :style="calendarPagesPreviewStyle">
           <article
             v-for="page in calendarPages"
             :key="page.key"
@@ -1480,17 +1496,19 @@ function toDateInputValue(date) {
 
 .calendar-pages-grid {
   display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(220px, 1fr));
   gap: 0.75rem;
 }
 
 .calendar-day-card {
   position: relative;
+  width: 100%;
+  min-width: 0;
   border: 1px solid #d4d7df;
   border-radius: 10px;
   background: #ffffff;
   padding: 0.85rem;
   aspect-ratio: var(--calendar-page-aspect-w) / var(--calendar-page-aspect-h);
+  height: auto;
   display: flex;
   flex-direction: column;
   min-height: 0;

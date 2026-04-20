@@ -19,6 +19,14 @@
             Basic Daily Astrology Calendar
           </RouterLink>
         </li>
+        <li>
+          <RouterLink
+            class="primary-button calendars-nav-button"
+            to="/calendars/basic-weekly-astrology"
+          >
+            Basic Weekly Astrology Calendar
+          </RouterLink>
+        </li>
       </ul>
     </section>
   </main>

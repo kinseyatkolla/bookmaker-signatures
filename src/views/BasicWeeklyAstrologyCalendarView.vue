@@ -6,6 +6,14 @@ import { PDFDocument, rgb } from "pdf-lib";
 import { buildImpositionOutputs } from "../imposition/helpers";
 import SignatureImpositionControls from "../components/SignatureImpositionControls.vue";
 import PdfOutputActions from "../components/PdfOutputActions.vue";
+import AstrologyEventsPanel from "../components/AstrologyEventsPanel.vue";
+import { getMoonTithiStep } from "../astrology/moonTithiDisplay";
+import {
+  getPlanetKeysFromNames,
+  getPlanetUnicodeFallback,
+  getZodiacKeysFromNames,
+  getZodiacUnicodeFallback,
+} from "../astrology/physisSymbolMap";
 
 const today = new Date();
 const plusThirty = new Date(today);
@@ -42,49 +50,180 @@ const rasterizedPageFiles = ref([]);
 const rasterizeProgressCurrent = ref(0);
 const rasterizeProgressTotal = ref(0);
 const rasterizeProgressActive = ref(false);
+const astrologyEventsByDate = ref({});
+const astrologyTithisByDate = ref({});
+const astrologyContext = ref({
+  locationName: "",
+  latitude: "",
+  longitude: "",
+  timeZone: "UTC",
+  startDate: "",
+  endDate: "",
+});
+
+const planetKeys = getPlanetKeysFromNames();
+const zodiacKeys = getZodiacKeysFromNames();
+const planetUnicodeFallback = getPlanetUnicodeFallback();
+const zodiacUnicodeFallback = getZodiacUnicodeFallback();
 
 const pagesPerSheet = 4;
 const pagesPerSignature = computed(
   () => Math.max(1, sheetsPerSignature.value) * pagesPerSheet,
 );
 
-const calendarPages = computed(() => {
-  const start = parseDateInput(startDate.value);
-  const end = parseDateInput(endDate.value);
+/** Monday 00:00 local of the ISO week containing `date` (noon-safe). */
+function startOfIsoWeekMonday(date) {
+  const d = new Date(date);
+  d.setHours(12, 0, 0, 0);
+  const day = d.getDay();
+  const diff = day === 0 ? -6 : 1 - day;
+  d.setDate(d.getDate() + diff);
+  return d;
+}
 
-  if (!start || !end || start.getTime() > end.getTime()) {
+function endOfWeekSunday(monday) {
+  const d = new Date(monday);
+  d.setDate(monday.getDate() + 6);
+  d.setHours(12, 0, 0, 0);
+  return d;
+}
+
+function formatBannerMonthYear(monday, sunday) {
+  const m0 = monday.toLocaleString("en-US", { month: "short" }).toUpperCase();
+  const y0 = monday.getFullYear();
+  const m1 = sunday.toLocaleString("en-US", { month: "short" }).toUpperCase();
+  const y1 = sunday.getFullYear();
+  if (monday.getMonth() === sunday.getMonth() && y0 === y1) {
+    return `${m0} ${y0}`;
+  }
+  return `${m0} ${y0} - ${m1} ${y1}`;
+}
+
+function getISOWeekYear(date) {
+  const d = new Date(date.valueOf());
+  d.setDate(d.getDate() + 3 - ((d.getDay() + 6) % 7));
+  return d.getFullYear();
+}
+
+function getISOWeek(date) {
+  const d = new Date(date.valueOf());
+  d.setHours(0, 0, 0, 0);
+  d.setDate(d.getDate() + 3 - ((d.getDay() + 6) % 7));
+  const week1 = new Date(d.getFullYear(), 0, 4);
+  return (
+    1 +
+    Math.round(
+      ((d.getTime() - week1.getTime()) / 86400000 -
+        3 +
+        ((week1.getDay() + 6) % 7)) /
+        7,
+    )
+  );
+}
+
+function isoWeeksInYear(year) {
+  const dec31 = new Date(year, 11, 31);
+  return getISOWeek(dec31) === 53 ? 53 : 52;
+}
+
+function buildDayPageData(current) {
+  const key = toDateInputValue(current);
+  return {
+    key,
+    dayNumber: current.getDate(),
+    dayShortLabel: current
+      .toLocaleString("en-US", { weekday: "short" })
+      .toUpperCase(),
+    dayLongLabel: current
+      .toLocaleString("en-US", { weekday: "long" })
+      .toUpperCase(),
+    fullDateLabel: current.toLocaleString("en-US", {
+      month: "long",
+      year: "numeric",
+    }),
+    isoStamp: current.toISOString(),
+    events: astrologyEventsByDate.value[key] ?? [],
+  };
+}
+
+/**
+ * Each raster page = one 2×2 grid: left sheet (banner + Mon–Wed half) or right (Thu–Sun).
+ * Order matches calendar-wizard weekly spread.
+ */
+const weeklyRasterSheets = computed(() => {
+  const rangeStart = parseDateInput(startDate.value);
+  const rangeEnd = parseDateInput(endDate.value);
+  if (!rangeStart || !rangeEnd || rangeStart.getTime() > rangeEnd.getTime()) {
     return [];
   }
 
-  const pages = [];
-  const cursor = new Date(start);
-  cursor.setHours(12, 0, 0, 0);
-
-  while (cursor.getTime() <= end.getTime()) {
-    const current = new Date(cursor);
-    pages.push({
-      key: toDateInputValue(current),
-      dayNumber: current.getDate(),
-      fullDateLabel: current.toLocaleString("en-US", {
-        weekday: "long",
-        year: "numeric",
-        month: "long",
-        day: "numeric",
-        hour: "numeric",
-        minute: "2-digit",
-        second: "2-digit",
-      }),
-      isoStamp: current.toISOString(),
-    });
-    cursor.setDate(cursor.getDate() + 1);
+  const firstMonday = startOfIsoWeekMonday(rangeStart);
+  const lastSunday = new Date(rangeEnd);
+  lastSunday.setHours(12, 0, 0, 0);
+  const dowEnd = lastSunday.getDay();
+  if (dowEnd !== 0) {
+    lastSunday.setDate(lastSunday.getDate() + (7 - dowEnd));
   }
 
-  return pages;
+  const sheets = [];
+  for (
+    let w = new Date(firstMonday);
+    w.getTime() <= lastSunday.getTime();
+    w.setDate(w.getDate() + 7)
+  ) {
+    const weekMon = new Date(w);
+    weekMon.setHours(12, 0, 0, 0);
+    const weekDays = [];
+    for (let i = 0; i < 7; i += 1) {
+      const dt = new Date(weekMon);
+      dt.setDate(weekMon.getDate() + i);
+      dt.setHours(12, 0, 0, 0);
+      if (dt.getTime() < rangeStart.getTime() || dt.getTime() > rangeEnd.getTime()) {
+        weekDays.push(null);
+      } else {
+        weekDays.push(buildDayPageData(dt));
+      }
+    }
+
+    const weekSun = endOfWeekSunday(weekMon);
+    const bannerText = formatBannerMonthYear(weekMon, weekSun);
+    const isoY = getISOWeekYear(weekMon);
+    const isoW = getISOWeek(weekMon);
+    const weekFraction = `${isoW}/${isoWeeksInYear(isoY)}`;
+    const monKey = toDateInputValue(weekMon);
+
+    sheets.push({
+      key: `${monKey}-L`,
+      side: "left",
+      bannerText,
+      weekFraction,
+      placements: [
+        { area: "banner", kind: "banner" },
+        { area: "tue", kind: "day", day: weekDays[1] },
+        { area: "mon", kind: "day", day: weekDays[0] },
+        { area: "wed", kind: "day", day: weekDays[2] },
+      ],
+    });
+    sheets.push({
+      key: `${monKey}-R`,
+      side: "right",
+      bannerText,
+      weekFraction,
+      placements: [
+        { area: "thu", kind: "day", day: weekDays[3] },
+        { area: "fri", kind: "day", day: weekDays[4] },
+        { area: "sat", kind: "day", day: weekDays[5] },
+        { area: "sun", kind: "day", day: weekDays[6] },
+      ],
+    });
+  }
+
+  return sheets;
 });
 
-const uploadedPageCount = computed(() => calendarPages.value.length);
-const effectivePageCount = computed(() => calendarPages.value.length);
-const numberOfPages = computed(() => calendarPages.value.length);
+const uploadedPageCount = computed(() => weeklyRasterSheets.value.length);
+const effectivePageCount = computed(() => weeklyRasterSheets.value.length);
+const numberOfPages = computed(() => weeklyRasterSheets.value.length);
 const usingManualPageCount = computed(() => false);
 
 watch(
@@ -489,7 +628,10 @@ function downloadCombinedPdf() {
   }
 
   const pageCount = impositionOutputs.value.length * 2;
-  triggerDownload(combinedPdfUrl.value, `basic-calendar-output-${pageCount}p.pdf`);
+  triggerDownload(
+    combinedPdfUrl.value,
+    `basic-weekly-astrology-output-${pageCount}p.pdf`,
+  );
 }
 
 function impositionRasterRotationDegrees(plateRotationDegrees) {
@@ -708,7 +850,8 @@ async function drawImpositionSide(
       y =
         cellBaseY + pageIndexWithinSheet * (slotHeightPoints + gapAtFoldPoints);
     } else {
-      x = cellBaseX + pageIndexWithinSheet * (slotWidthPoints + gapAtFoldPoints);
+      x =
+        cellBaseX + pageIndexWithinSheet * (slotWidthPoints + gapAtFoldPoints);
       y = cellBaseY;
     }
 
@@ -775,31 +918,31 @@ async function drawImpositionSide(
   }
 }
 
-const dateCardRefs = ref({});
+const rasterSheetRefs = ref({});
 
-function setDateCardRef(dateKey, element) {
+function setRasterSheetRef(sheetKey, element) {
   if (element) {
-    dateCardRefs.value[dateKey] = element;
+    rasterSheetRefs.value[sheetKey] = element;
     return;
   }
-  delete dateCardRefs.value[dateKey];
+  delete rasterSheetRefs.value[sheetKey];
 }
 
 async function rasterizeCalendarPages() {
   await nextTick();
   const files = [];
   rasterizeProgressCurrent.value = 0;
-  rasterizeProgressTotal.value = calendarPages.value.length;
+  rasterizeProgressTotal.value = weeklyRasterSheets.value.length;
   rasterizeProgressActive.value = true;
 
   try {
     for (
       let pageIndex = 0;
-      pageIndex < calendarPages.value.length;
+      pageIndex < weeklyRasterSheets.value.length;
       pageIndex += 1
     ) {
-      const pageData = calendarPages.value[pageIndex];
-      const card = dateCardRefs.value[pageData.key];
+      const pageData = weeklyRasterSheets.value[pageIndex];
+      const card = rasterSheetRefs.value[pageData.key];
       if (!card) {
         throw new Error("Calendar page card is not ready for rasterization.");
       }
@@ -845,7 +988,7 @@ async function generatePdfOutput() {
     return;
   }
 
-  if (calendarPages.value.length === 0) {
+  if (weeklyRasterSheets.value.length === 0) {
     pdfError.value = "Choose a valid date range to create calendar pages.";
     return;
   }
@@ -916,10 +1059,46 @@ function buildCalendarPagesPreviewStyle() {
   };
 }
 
+/** Inline grid + aspect vars; kept in a ref and synced via watch so DOM tracks page size inputs. */
 const calendarPagesPreviewStyle = ref(buildCalendarPagesPreviewStyle());
 
 watch([pageWidth, pageHeight], () => {
   calendarPagesPreviewStyle.value = buildCalendarPagesPreviewStyle();
+});
+
+const astrologyTimeframeLabel = computed(() => {
+  const start = parseDateInput(startDate.value);
+  const end = parseDateInput(endDate.value);
+  if (!start || !end) {
+    return "Invalid date range";
+  }
+  const startLabel = start.toLocaleDateString("en-US", {
+    month: "long",
+    day: "numeric",
+    year: "numeric",
+  });
+  const endLabel = end.toLocaleDateString("en-US", {
+    month: "long",
+    day: "numeric",
+    year: "numeric",
+  });
+  return `${startLabel} - ${endLabel}`;
+});
+
+const astrologyLocationLabel = computed(() => {
+  const name = astrologyContext.value.locationName;
+  if (!name) {
+    return "Location not set";
+  }
+  const latitude = Number(astrologyContext.value.latitude);
+  const longitude = Number(astrologyContext.value.longitude);
+  const hasCoordinates =
+    Number.isFinite(latitude) && Number.isFinite(longitude);
+  const coordinateText = hasCoordinates
+    ? ` (${latitude.toFixed(4)}, ${longitude.toFixed(4)})`
+    : "";
+  const tz = astrologyContext.value.timeZone || "UTC";
+  return `${name}${coordinateText} · ${tz}`;
 });
 
 const impositionControlForm = computed(() => ({
@@ -967,6 +1146,114 @@ const impositionControlHandlers = {
   onOutputLayoutPointerDown,
   onOutputLayoutPointerEnter,
 };
+
+const moonPhasePngUrlByTithi = (() => {
+  const pngModules = import.meta.glob("../assets/moons/*.png", {
+    eager: true,
+    query: "?url",
+    import: "default",
+  });
+  const byNumber = {};
+  for (const [path, url] of Object.entries(pngModules)) {
+    const match = path.match(/(\d+)\.png$/i);
+    if (match) {
+      byNumber[Number(match[1])] = url;
+    }
+  }
+  return byNumber;
+})();
+
+function moonIconSrc(tithiNumber) {
+  if (typeof tithiNumber !== "number" || tithiNumber < 1 || tithiNumber > 30) {
+    return "";
+  }
+  return moonPhasePngUrlByTithi[tithiNumber] ?? "";
+}
+
+function dayTithiDetails(dateKey) {
+  return (
+    astrologyTithisByDate.value?.[dateKey] ?? {
+      primaryTithi: null,
+      tithiNumbers: [],
+      hourCounts: {},
+    }
+  );
+}
+
+function formatTithiSummary(tithiNumber, hourCounts) {
+  const step = getMoonTithiStep(tithiNumber);
+  const hours = Number(hourCounts?.[tithiNumber] ?? 0);
+  const label = step?.name || `T${tithiNumber}`;
+  return hours > 0 ? `${label} (${hours}h)` : label;
+}
+
+function dayHasEclipse(dateKey) {
+  const events = astrologyEventsByDate.value?.[dateKey] ?? [];
+  return events.some((event) => {
+    const label = String(event?.mainLabel || "").toLowerCase();
+    return label.includes("solar eclipse") || label.includes("lunar eclipse");
+  });
+}
+
+function signElementClass(signName) {
+  const map = {
+    Aries: "sign-fire",
+    Leo: "sign-fire",
+    Sagittarius: "sign-fire",
+    Taurus: "sign-earth",
+    Virgo: "sign-earth",
+    Capricorn: "sign-earth",
+    Gemini: "sign-air",
+    Libra: "sign-air",
+    Aquarius: "sign-air",
+    Cancer: "sign-water",
+    Scorpio: "sign-water",
+    Pisces: "sign-water",
+  };
+  return map[signName] || "";
+}
+
+function dayFooterSunMoonGlyphs(dateKey) {
+  const entry = dayTithiDetails(dateKey).sunMoon;
+  if (!entry?.sunSign || !entry?.moonSign) {
+    return null;
+  }
+
+  return {
+    sun: {
+      planetKey: planetKeys.Sun || "",
+      zodiacKey: zodiacKeys[entry.sunSign] || "",
+      planetUnicode: planetUnicodeFallback.sun || "",
+      zodiacUnicode: zodiacUnicodeFallback[entry.sunSign] || "",
+      elementClass: signElementClass(entry.sunSign),
+    },
+    moon: {
+      planetKey: planetKeys.Moon || "",
+      zodiacKey: zodiacKeys[entry.moonSign] || "",
+      planetUnicode: planetUnicodeFallback.moon || "",
+      zodiacUnicode: zodiacUnicodeFallback[entry.moonSign] || "",
+      elementClass: signElementClass(entry.moonSign),
+    },
+  };
+}
+
+function primaryTithiStep(dateKey) {
+  const primary = dayTithiDetails(dateKey).primaryTithi;
+  if (typeof primary !== "number") return null;
+  return getMoonTithiStep(primary);
+}
+
+function onAstrologyEventsByDateUpdate(nextEventsByDate) {
+  astrologyEventsByDate.value = nextEventsByDate ?? {};
+}
+
+function onAstrologyContextUpdate(nextContext) {
+  astrologyContext.value = nextContext ?? astrologyContext.value;
+}
+
+function onAstrologyTithisByDateUpdate(nextTithisByDate) {
+  astrologyTithisByDate.value = nextTithisByDate ?? {};
+}
 
 function onImpositionControlFieldUpdate({ key, value }) {
   switch (key) {
@@ -1035,12 +1322,14 @@ function toDateInputValue(date) {
   <main class="page">
     <section class="card">
       <div class="calendar-header">
-        <h1>Basic Calendar</h1>
-        <RouterLink class="small-button" to="/calendars">Back to Calendars</RouterLink>
+        <h1>Basic Weekly Astrology Calendar</h1>
+        <RouterLink class="small-button" to="/calendars"
+          >Back to Calendars</RouterLink
+        >
       </div>
       <p class="subtitle">
-        Build one DOM card per day in a date range, rasterize those cards, and run
-        them through the existing imposition engine.
+        Build one DOM card per day in a date range, rasterize those cards, and
+        run them through the existing imposition engine.
       </p>
 
       <div class="grid date-range-grid">
@@ -1072,23 +1361,258 @@ function toDateInputValue(date) {
         @update:field="onImpositionControlFieldUpdate"
       />
 
+      <AstrologyEventsPanel
+        :start-date="startDate"
+        :end-date="endDate"
+        @update:eventsByDate="onAstrologyEventsByDateUpdate"
+        @update:context="onAstrologyContextUpdate"
+        @update:tithisByDate="onAstrologyTithisByDateUpdate"
+      />
+
       <PdfOutputActions :state="pdfOutputState" :handlers="pdfOutputHandlers" />
 
       <section class="calendar-pages-section">
         <h2>Calendar DOM Pages</h2>
+        <p class="calendar-pages-context">
+          <strong>Current location:</strong> {{ astrologyLocationLabel }}
+          <span class="calendar-pages-context-separator">|</span>
+          <strong>Timeframe:</strong> {{ astrologyTimeframeLabel }}
+        </p>
         <p class="note">
-          Each card matches the page aspect ratio and is rasterized at PDF generation.
+          Each raster page is one side of the weekly spread (banner + Mon–Wed or
+          Thu–Sun) at the page aspect ratio for PDF generation.
         </p>
         <div class="calendar-pages-grid" :style="calendarPagesPreviewStyle">
           <article
-            v-for="page in calendarPages"
-            :key="page.key"
-            :ref="(el) => setDateCardRef(page.key, el)"
-            class="calendar-day-card"
+            v-for="sheet in weeklyRasterSheets"
+            :key="sheet.key"
+            :ref="(el) => setRasterSheetRef(sheet.key, el)"
+            class="weekly-raster-sheet"
           >
-            <p class="calendar-day-number">{{ page.dayNumber }}</p>
-            <p class="calendar-day-label">{{ page.fullDateLabel }}</p>
-            <p class="calendar-day-iso">{{ page.isoStamp }}</p>
+            <div class="weekly-grid" :class="`weekly-grid--${sheet.side}`">
+              <div
+                v-for="cell in sheet.placements"
+                :key="`${sheet.key}-${cell.area}`"
+                :class="[
+                  'weekly-cell',
+                  `weekly-cell--${cell.area}`,
+                  cell.kind === 'day' && !cell.day ? 'weekly-cell--empty' : '',
+                ]"
+              >
+                <template v-if="cell.kind === 'banner'">
+                  <div class="week-banner-inner">
+                    <p class="week-banner-month">{{ sheet.bannerText }}</p>
+                    <p class="week-banner-weeknum">{{ sheet.weekFraction }}</p>
+                  </div>
+                </template>
+                <div
+                  v-else-if="cell.kind === 'day' && !cell.day"
+                  class="weekly-day-placeholder"
+                  aria-hidden="true"
+                />
+                <div
+                  v-else-if="cell.day"
+                  class="weekly-day-inner calendar-page--day"
+                >
+                  <header class="day-page-header">
+                    <p class="header-day">
+                      {{ cell.day.dayNumber }} {{ cell.day.dayLongLabel }}
+                    </p>
+                    <span
+                      v-if="primaryTithiStep(cell.day.key)"
+                      class="tithi-tag tithi-tag--day-corner"
+                      :class="`tithi-tag--${primaryTithiStep(cell.day.key)?.colorKey}`"
+                      :title="`Tithi ${dayTithiDetails(cell.day.key).primaryTithi} (${primaryTithiStep(cell.day.key)?.name})`"
+                    >
+                      {{ primaryTithiStep(cell.day.key)?.name }}
+                    </span>
+                  </header>
+                  <p class="calendar-day-iso">{{ cell.day.fullDateLabel }}</p>
+                  <div
+                    v-if="dayTithiDetails(cell.day.key).tithiNumbers.length"
+                    class="calendar-day-tithis"
+                  >
+                    <span class="calendar-day-tithi-text">
+                      <template
+                        v-for="(tithiNumber, tithiIndex) in dayTithiDetails(
+                          cell.day.key,
+                        ).tithiNumbers"
+                        :key="`${cell.day.key}-tithi-label-${tithiNumber}`"
+                      >
+                        <span
+                          class="calendar-day-tithi-token"
+                          :class="`calendar-day-tithi-token--${
+                            getMoonTithiStep(tithiNumber)?.colorKey || 'blue'
+                          }`"
+                        >
+                          {{
+                            formatTithiSummary(
+                              tithiNumber,
+                              dayTithiDetails(cell.day.key).hourCounts,
+                            )
+                          }}
+                        </span>
+                        <span
+                          v-if="
+                            tithiIndex <
+                            dayTithiDetails(cell.day.key).tithiNumbers.length - 1
+                          "
+                          class="calendar-day-tithi-separator"
+                          >•</span
+                        >
+                      </template>
+                    </span>
+                  </div>
+                  <ul class="event-list event-list--day">
+                    <li
+                      v-for="event in cell.day.events"
+                      :key="event.id"
+                      class="event-block"
+                    >
+                      <div
+                        v-if="event.glyphRows.length === 2"
+                        class="event-glyphs event-glyphs--day-lead event-glyphs--aspect-inline"
+                      >
+                        <div
+                          class="glyph-row"
+                          :class="event.glyphRows[0].elementClass"
+                        >
+                          <span class="glyph-char">{{
+                            event.glyphRows[0].planetKey ||
+                            event.glyphRows[0].planetUnicode
+                          }}</span>
+                          <span class="glyph-char">{{
+                            event.glyphRows[0].zodiacKey ||
+                            event.glyphRows[0].zodiacUnicode
+                          }}</span>
+                          <span class="glyph-row-degree"
+                            >{{ event.glyphRows[0].degree }}
+                            {{ event.glyphRows[0].signName }}</span
+                          >
+                        </div>
+                        <span
+                          v-if="event.aspectPhysisKey"
+                          class="glyph-aspect-char"
+                          aria-hidden="true"
+                          >{{ event.aspectPhysisKey }}</span
+                        >
+                        <div
+                          class="glyph-row"
+                          :class="event.glyphRows[1].elementClass"
+                        >
+                          <span class="glyph-char">{{
+                            event.glyphRows[1].planetKey ||
+                            event.glyphRows[1].planetUnicode
+                          }}</span>
+                          <span class="glyph-char">{{
+                            event.glyphRows[1].zodiacKey ||
+                            event.glyphRows[1].zodiacUnicode
+                          }}</span>
+                          <span class="glyph-row-degree"
+                            >{{ event.glyphRows[1].degree }}
+                            {{ event.glyphRows[1].signName }}</span
+                          >
+                        </div>
+                      </div>
+                      <div
+                        v-else-if="event.glyphRows.length"
+                        class="event-glyphs event-glyphs--day-lead"
+                      >
+                        <div
+                          v-for="(row, rowIndex) in event.glyphRows"
+                          :key="`${event.id}-glyph-${rowIndex}`"
+                          class="glyph-row"
+                          :class="row.elementClass"
+                        >
+                          <span class="glyph-char">{{
+                            row.planetKey || row.planetUnicode
+                          }}</span>
+                          <span class="glyph-char">{{
+                            row.zodiacKey || row.zodiacUnicode
+                          }}</span>
+                          <span class="glyph-row-degree"
+                            >{{ row.degree }} {{ row.signName }}</span
+                          >
+                        </div>
+                      </div>
+                      <div class="event-title-row">
+                        <p
+                          class="event-title"
+                          :class="{
+                            'event-title--natal':
+                              event.eventType === 'natal transit',
+                          }"
+                        >
+                          {{ event.mainLabel }}
+                        </p>
+                        <p v-if="event.timestamp" class="event-time">
+                          {{ event.timestamp }}
+                        </p>
+                      </div>
+                    </li>
+                  </ul>
+                  <footer class="page-day-footer">
+                    <div
+                      v-if="dayFooterSunMoonGlyphs(cell.day.key)"
+                      class="page-day-footer-glyphs"
+                      aria-label="Sun and Moon at local noon"
+                    >
+                      <span
+                        class="page-day-footer-pair"
+                        :class="
+                          dayFooterSunMoonGlyphs(cell.day.key).sun.elementClass
+                        "
+                      >
+                        <span class="glyph-char">{{
+                          dayFooterSunMoonGlyphs(cell.day.key).sun.planetKey ||
+                          dayFooterSunMoonGlyphs(cell.day.key).sun.planetUnicode
+                        }}</span>
+                        <span class="glyph-char">{{
+                          dayFooterSunMoonGlyphs(cell.day.key).sun.zodiacKey ||
+                          dayFooterSunMoonGlyphs(cell.day.key).sun.zodiacUnicode
+                        }}</span>
+                      </span>
+                      <span
+                        class="page-day-footer-pair"
+                        :class="
+                          dayFooterSunMoonGlyphs(cell.day.key).moon.elementClass
+                        "
+                      >
+                        <span class="glyph-char">{{
+                          dayFooterSunMoonGlyphs(cell.day.key).moon.planetKey ||
+                          dayFooterSunMoonGlyphs(cell.day.key).moon.planetUnicode
+                        }}</span>
+                        <span class="glyph-char">{{
+                          dayFooterSunMoonGlyphs(cell.day.key).moon.zodiacKey ||
+                          dayFooterSunMoonGlyphs(cell.day.key).moon.zodiacUnicode
+                        }}</span>
+                      </span>
+                    </div>
+                    <span
+                      v-if="dayTithiDetails(cell.day.key).primaryTithi"
+                      class="page-moon-wrap page-moon-wrap--footer"
+                      :class="{
+                        'page-moon-wrap--eclipse': dayHasEclipse(cell.day.key),
+                      }"
+                    >
+                      <img
+                        v-if="
+                          moonIconSrc(dayTithiDetails(cell.day.key).primaryTithi)
+                        "
+                        class="page-moon-icon page-moon-icon--footer"
+                        width="28"
+                        height="28"
+                        :src="
+                          moonIconSrc(dayTithiDetails(cell.day.key).primaryTithi)
+                        "
+                        alt=""
+                        :title="`Primary tithi ${dayTithiDetails(cell.day.key).primaryTithi}`"
+                      />
+                    </span>
+                  </footer>
+                </div>
+              </div>
+            </div>
           </article>
         </div>
       </section>
@@ -1113,49 +1637,544 @@ function toDateInputValue(date) {
   margin-bottom: 1rem;
 }
 
+.calendar-pages-context {
+  margin: 0.4rem 0 0.4rem;
+  font-size: 0.88rem;
+  color: #3f4451;
+}
+
+.calendar-pages-context-separator {
+  margin: 0 0.45rem;
+  color: #8a909e;
+}
+
 .calendar-pages-grid {
   display: grid;
   gap: 0.75rem;
 }
 
-.calendar-day-card {
+.weekly-raster-sheet {
   position: relative;
   width: 100%;
   min-width: 0;
   border: 1px solid #d4d7df;
   border-radius: 10px;
   background: #ffffff;
-  padding: 0.85rem;
+  padding: 0.45rem;
   aspect-ratio: var(--calendar-page-aspect-w) / var(--calendar-page-aspect-h);
   height: auto;
   display: flex;
   flex-direction: column;
-  justify-content: flex-start;
+  min-height: 0;
+  overflow: visible;
+  box-sizing: border-box;
+  font-family: Inter, "Avenir Next", Avenir, "Segoe UI", Roboto, sans-serif;
+}
+
+.weekly-grid {
+  flex: 1;
+  min-height: 0;
+  display: grid;
+  gap: 0.35rem;
+  grid-template-columns: 1fr 1fr;
+  grid-template-rows: 1fr 1fr;
+}
+
+.weekly-grid--left {
+  grid-template-areas:
+    "banner tue"
+    "mon wed";
+}
+
+.weekly-grid--right {
+  grid-template-areas:
+    "thu sat"
+    "fri sun";
+}
+
+.weekly-cell {
+  position: relative;
+  min-height: 0;
+  min-width: 0;
+  border-radius: 6px;
+  border: 1px solid #e2e5ec;
+  background: #fafbfc;
   overflow: hidden;
 }
 
-.calendar-day-number {
-  margin: 0;
-  font-size: clamp(3rem, 8vw, 5.4rem);
-  line-height: 0.95;
-  font-weight: 800;
-  color: #1f2f55;
+.weekly-cell--banner {
+  grid-area: banner;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  text-align: center;
+  padding: 0.35rem 0.5rem;
+  background: linear-gradient(160deg, #f7f8fb 0%, #eef0f6 100%);
+  border-style: dashed;
 }
 
-.calendar-day-label {
-  margin: 0.75rem 0 0;
-  font-size: 0.95rem;
-  line-height: 1.35;
-  color: #1d222f;
+.weekly-cell--mon {
+  grid-area: mon;
+}
+
+.weekly-cell--tue {
+  grid-area: tue;
+}
+
+.weekly-cell--wed {
+  grid-area: wed;
+}
+
+.weekly-cell--thu {
+  grid-area: thu;
+}
+
+.weekly-cell--fri {
+  grid-area: fri;
+}
+
+.weekly-cell--sat {
+  grid-area: sat;
+}
+
+.weekly-cell--sun {
+  grid-area: sun;
+}
+
+.weekly-cell--empty {
+  background: #f0f2f6;
+  border-style: dotted;
+}
+
+.week-banner-inner {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 0.2rem;
+  width: 100%;
+}
+
+.week-banner-month {
+  margin: 0;
+  font-size: clamp(0.72rem, 2.2vw, 1rem);
+  font-weight: 800;
+  letter-spacing: 0.08em;
+  line-height: 1.15;
+  color: #1a1d24;
+}
+
+.week-banner-weeknum {
+  margin: 0;
+  font-size: clamp(0.62rem, 1.8vw, 0.82rem);
+  font-weight: 600;
+  letter-spacing: 0.12em;
+  color: #5c6475;
+}
+
+.weekly-day-placeholder {
+  height: 100%;
+  min-height: 2.5rem;
+}
+
+.weekly-day-inner {
+  position: relative;
+  height: 100%;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  padding: 0.35rem 0.4rem 0.4rem;
+  box-sizing: border-box;
+  background: #ffffff;
+  overflow: hidden;
+}
+
+.weekly-day-inner .day-page-header {
+  margin-bottom: 0.2rem;
+}
+
+.weekly-day-inner .header-day {
+  font-size: clamp(0.68rem, 1.6vw, 0.95rem);
+}
+
+.weekly-day-inner .tithi-tag--day-corner {
+  font-size: clamp(0.62rem, 1.4vw, 0.78rem);
+}
+
+.weekly-day-inner .calendar-day-iso {
+  font-size: 0.58rem;
+  margin-bottom: 0.2rem;
+}
+
+.weekly-day-inner .calendar-day-tithi-text {
+  font-size: 0.52rem;
+}
+
+.weekly-day-inner .event-list--day {
+  flex: 1;
+  min-height: 0;
+  overflow: auto;
+  padding-bottom: calc(1.1rem + 28px);
+}
+
+.weekly-day-inner .event-block {
+  font-size: 0.72rem;
+}
+
+.weekly-day-inner .glyph-row {
+  font-size: 0.72rem;
+}
+
+.weekly-day-inner .glyph-char {
+  font-size: 0.85rem;
+}
+
+.weekly-day-inner .event-title {
+  font-size: 0.72rem;
+}
+
+.weekly-day-inner .page-day-footer {
+  right: 0.35rem;
+  bottom: 0.3rem;
+  gap: 0.45rem;
+}
+
+.weekly-day-inner .page-day-footer .glyph-char {
+  font-size: 1.05rem;
+}
+
+.day-page-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  gap: 1.5rem;
+  width: 100%;
+  margin-bottom: 0.35rem;
+}
+
+.header-day {
+  margin: 0;
+  font-size: clamp(1.05rem, 2.8vw, 1.45rem);
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  line-height: 1.1;
+}
+
+.tithi-tag {
+  flex-shrink: 0;
+  font-size: 0.72rem;
+  font-weight: 700;
+  letter-spacing: 0.02em;
+  line-height: 1;
+  user-select: none;
+  min-width: 1.35rem;
+  text-align: center;
+}
+
+.tithi-tag--day-corner {
+  font-size: clamp(0.78rem, 2vw, 0.95rem);
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  line-height: 1.2;
+  padding-top: 0.12rem;
+}
+
+.tithi-tag--blue {
+  color: #005eff;
+}
+
+.tithi-tag--green {
+  color: #118b36;
+}
+
+.tithi-tag--red {
+  color: #d40000;
 }
 
 .calendar-day-iso {
-  margin: 0.45rem 0 0;
-  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas,
-    "Liberation Mono", "Courier New", monospace;
+  margin: 0 0 0.35rem;
+  font-family:
+    ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono",
+    "Courier New", monospace;
   font-size: 0.72rem;
   line-height: 1.25;
   color: #535a69;
   overflow-wrap: anywhere;
+}
+
+.calendar-day-tithis {
+  margin-top: 0.35rem;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 0.15rem;
+}
+
+.calendar-day-tithi-text {
+  font-size: 0.62rem;
+  line-height: 1.2;
+  overflow-wrap: anywhere;
+}
+
+.calendar-day-tithi-token--blue {
+  color: #005eff;
+}
+
+.calendar-day-tithi-token--green {
+  color: #118b36;
+}
+
+.calendar-day-tithi-token--red {
+  color: #d40000;
+}
+
+.calendar-day-tithi-separator {
+  margin: 0 0.15rem;
+  color: #7f8798;
+}
+
+.event-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+
+.event-list--day {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  flex: 1 0 auto;
+  overflow: visible;
+  display: flex;
+  flex-direction: column;
+  justify-content: flex-start;
+  align-items: stretch;
+  align-content: flex-start;
+  gap: 0;
+  padding-bottom: calc(3rem + 40px + 0.35rem);
+}
+
+.event-block {
+  display: flex;
+  flex-direction: column;
+  gap: 0;
+  flex: none;
+  font-size: 0.98rem;
+  line-height: 1.22;
+  height: auto;
+  min-height: 2lh;
+  max-height: 3lh;
+  box-sizing: border-box;
+  overflow: hidden;
+  border-bottom: 1px solid #e6e6e6;
+  padding: 0;
+}
+
+.event-block:last-of-type {
+  border-bottom: none;
+}
+
+.event-block:has(> .event-title-row:only-child) {
+  height: auto;
+  min-height: 1lh;
+  max-height: 2lh;
+}
+
+.event-block > .event-glyphs--day-lead {
+  flex: 0 0 1lh;
+  height: 1lh;
+  min-height: 1lh;
+  max-height: 1lh;
+  overflow: hidden;
+  flex-wrap: nowrap;
+  align-items: center;
+  padding: 0;
+}
+
+.event-block > .event-title-row {
+  flex: 0 0 auto;
+  height: auto;
+  min-height: 1lh;
+  max-height: 2lh;
+  overflow: hidden;
+  align-items: flex-start;
+  padding: 0;
+}
+
+.event-glyphs--day-lead {
+  display: flex;
+  flex-direction: row;
+  flex-wrap: wrap;
+  gap: 0.35rem 1.35rem;
+  align-items: baseline;
+  justify-content: flex-start;
+}
+
+.event-glyphs--aspect-inline {
+  display: flex;
+  flex-direction: row;
+  flex-wrap: nowrap;
+  gap: 0.35rem 0.5rem;
+  align-items: baseline;
+  justify-content: flex-start;
+  width: 100%;
+}
+
+.event-glyphs--aspect-inline .glyph-row {
+  flex: 0 1 auto;
+  min-width: 0;
+}
+
+.glyph-aspect-char {
+  font-family: Physis, serif;
+  font-size: 1.05rem;
+  font-weight: 600;
+  color: #111111;
+  line-height: 1;
+  flex-shrink: 0;
+  padding: 0 0.1rem;
+}
+
+.glyph-row {
+  display: inline-flex;
+  align-items: baseline;
+  gap: 0.35rem;
+  white-space: nowrap;
+  font-size: 0.98rem;
+  font-weight: 600;
+}
+
+.glyph-char {
+  font-size: 1.15rem;
+  font-family: Physis, serif;
+  line-height: 1;
+}
+
+.glyph-row-degree {
+  font-weight: 700;
+}
+
+.calendar-page--day .glyph-row-degree {
+  font-weight: 500;
+}
+
+.event-title-row {
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+  gap: 1rem;
+  width: 100%;
+}
+
+.event-title {
+  margin: 0;
+  flex: 1;
+  min-width: 0;
+  font-size: 0.98rem;
+  font-weight: 500;
+  color: #000000;
+  line-height: 1.22;
+  overflow: hidden;
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  line-clamp: 2;
+  -webkit-box-orient: vertical;
+}
+
+.event-title--natal {
+  font-weight: 650;
+}
+
+.event-time {
+  margin: 0;
+  flex-shrink: 0;
+  font-size: 0.72rem;
+  font-weight: 400;
+  color: #8a8a8a;
+  letter-spacing: 0.02em;
+}
+
+.page-day-footer {
+  position: absolute;
+  right: 0.85rem;
+  bottom: 0.85rem;
+  left: auto;
+  margin-top: 0;
+  display: flex;
+  justify-content: flex-end;
+  align-items: center;
+  gap: 1.7rem;
+  padding-top: 0;
+  z-index: 1;
+}
+
+.page-day-footer-glyphs {
+  display: inline-flex;
+  align-items: baseline;
+  gap: 0.7rem;
+}
+
+.page-day-footer-pair {
+  display: inline-flex;
+  align-items: baseline;
+  gap: 0.12rem;
+  font-weight: 600;
+}
+
+.page-day-footer .glyph-char {
+  font-family: Physis, serif;
+  font-size: 1.9rem;
+  line-height: 1;
+}
+
+.page-moon-wrap {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+  width: 48px;
+  height: 48px;
+  border-radius: 50%;
+  box-sizing: border-box;
+}
+
+.page-moon-wrap--eclipse {
+  border: 3px solid #ff6b6b;
+  background-color: transparent;
+}
+
+.page-moon-icon {
+  flex-shrink: 0;
+  width: 44px;
+  height: 44px;
+  object-fit: contain;
+  border-radius: 50%;
+  display: block;
+}
+
+.page-moon-wrap.page-moon-wrap--footer {
+  width: 44px;
+  height: 44px;
+}
+
+.page-moon-icon.page-moon-icon--footer {
+  width: 40px;
+  height: 40px;
+}
+
+.sign-fire {
+  color: #d40000;
+}
+
+.sign-water {
+  color: #005eff;
+}
+
+.sign-earth {
+  color: #118b36;
+}
+
+.sign-air {
+  color: #6e31d8;
 }
 </style>
