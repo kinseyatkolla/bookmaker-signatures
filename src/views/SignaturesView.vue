@@ -1,6 +1,9 @@
 <script setup>
 import { computed, onMounted, onUnmounted, ref, watch } from "vue";
 import { PDFDocument, rgb } from "pdf-lib";
+import { buildImpositionOutputs } from "../imposition/helpers";
+import SignatureImpositionControls from "../components/SignatureImpositionControls.vue";
+import PdfOutputActions from "../components/PdfOutputActions.vue";
 
 const uploadedFiles = ref([]);
 const numberOfPages = ref(16);
@@ -247,145 +250,15 @@ function buildSheetSlot(signatureOffset, relativePageNumber) {
   };
 }
 
-/**
- * Zigzag nesting: sheet index 0 is outer (high|low), last index innermost.
- * Front pair high|low. Back pair order depends on fold axis: vertical fold places
- * page halves left|right, so verso reads (low+1)|(high-1); horizontal fold stacks
- * halves, so verso keeps (high-1) above (low+1) in slot order for duplex.
- */
-function buildSignatureSheets(signatureIndex) {
-  const signatureSheetCount = normalizePositiveInteger(
-    sheetsPerSignature.value,
-    1,
-  );
-  const signaturePageCount = signatureSheetCount * pagesPerSheet;
-  const signatureOffset = signatureIndex * signaturePageCount;
-  const foldVertical = outputFoldAxis.value === "vertical";
-
-  return Array.from({ length: signatureSheetCount }, (_, sheetIndex) => {
-    const lowPage = sheetIndex * 2 + 1;
-    const highPage = signaturePageCount - sheetIndex * 2;
-    const versoFirst = foldVertical ? lowPage + 1 : highPage - 1;
-    const versoSecond = foldVertical ? highPage - 1 : lowPage + 1;
-
-    return {
-      sheetNumber: sheetIndex + 1,
-      front: [
-        buildSheetSlot(signatureOffset, highPage),
-        buildSheetSlot(signatureOffset, lowPage),
-      ],
-      back: [
-        buildSheetSlot(signatureOffset, versoFirst),
-        buildSheetSlot(signatureOffset, versoSecond),
-      ],
-    };
-  });
-}
-
-/**
- * Maps physical sheets (sequential after zigzag build) onto output grid cells.
- * Front: each row right-to-left. Back: left-to-right, rows top-to-bottom.
- * Row-major sheetIndex is row * cols + col (matches placeSheetsOnOutputSheet).
- */
-function layoutSheetsOnOutputGrid(physicalSheets, side, pattern) {
-  const sheetCols = Math.max(1, Math.floor(Number(pattern?.sheetCols) || 1));
-  const sheetRows = Math.max(1, Math.floor(Number(pattern?.sheetRows) || 1));
-  const gridSlots = sheetCols * sheetRows;
-  const n = physicalSheets.length;
-
-  const visitOrder = [];
-  if (side === "front") {
-    for (let row = 0; row < sheetRows; row += 1) {
-      for (let col = sheetCols - 1; col >= 0; col -= 1) {
-        visitOrder.push(row * sheetCols + col);
-      }
-    }
-  } else {
-    for (let row = 0; row < sheetRows; row += 1) {
-      for (let col = 0; col < sheetCols; col += 1) {
-        visitOrder.push(row * sheetCols + col);
-      }
-    }
-  }
-
-  const out = Array.from({ length: gridSlots }, () => null);
-  for (let i = 0; i < n && i < visitOrder.length; i += 1) {
-    out[visitOrder[i]] = physicalSheets[i];
-  }
-  return out;
-}
-
-function placeSheetsOnOutputSheet(sheets, side, pattern) {
-  const sheetCols = Math.max(1, Math.floor(Number(pattern?.sheetCols) || 1));
-  const sheetRows = Math.max(1, Math.floor(Number(pattern?.sheetRows) || 1));
-  const targetSheetCount = sheetCols * sheetRows;
-  const placedSlots = [];
-
-  for (let sheetIndex = 0; sheetIndex < targetSheetCount; sheetIndex += 1) {
-    const sheet = sheets[sheetIndex];
-    if (!sheet) {
-      continue;
-    }
-
-    const sheetRow = Math.floor(sheetIndex / sheetCols);
-    const sheetCol = sheetIndex % sheetCols;
-    const slotPair = side === "front" ? sheet.front : sheet.back;
-
-    for (let pageIndex = 0; pageIndex < slotPair.length; pageIndex += 1) {
-      const slot = slotPair[pageIndex];
-      placedSlots.push({
-        ...slot,
-        gridRow: sheetRow,
-        sheetCol,
-        pageIndexWithinSheet: pageIndex,
-      });
-    }
-  }
-
-  return {
-    slots: placedSlots,
-    rowCount: sheetRows,
-    sheetCols,
-    foldAxis: outputFoldAxis.value,
-  };
-}
-
 const impositionOutputs = computed(() => {
-  if (!templateMatchesCurrentInputs.value) {
-    return [];
-  }
-
-  const pattern = getOutputLayoutPattern();
-  const normalizedSheetsPerOutput = pattern.sheetCols * pattern.sheetRows;
-  const allPhysicalSheets = [];
-
-  for (
-    let signatureIndex = 0;
-    signatureIndex < numberOfSignatures.value;
-    signatureIndex += 1
-  ) {
-    allPhysicalSheets.push(...buildSignatureSheets(signatureIndex));
-  }
-
-  const outputCount = Math.ceil(
-    allPhysicalSheets.length / normalizedSheetsPerOutput,
-  );
-  const outputs = [];
-
-  for (let outputIndex = 0; outputIndex < outputCount; outputIndex += 1) {
-    const start = outputIndex * normalizedSheetsPerOutput;
-    const end = start + normalizedSheetsPerOutput;
-    const outputSheets = allPhysicalSheets.slice(start, end);
-    const frontSheets = layoutSheetsOnOutputGrid(outputSheets, "front", pattern);
-    const backSheets = layoutSheetsOnOutputGrid(outputSheets, "back", pattern);
-    outputs.push({
-      plateNumber: outputIndex + 1,
-      front: placeSheetsOnOutputSheet(frontSheets, "front", pattern),
-      back: placeSheetsOnOutputSheet(backSheets, "back", pattern),
-    });
-  }
-
-  return outputs;
+  return buildImpositionOutputs({
+    templateMatchesCurrentInputs: templateMatchesCurrentInputs.value,
+    outputLayoutPattern: getOutputLayoutPattern(),
+    numberOfSignatures: numberOfSignatures.value,
+    sheetsPerSignature: sheetsPerSignature.value,
+    foldAxis: outputFoldAxis.value,
+    buildSheetSlot,
+  });
 });
 
 function getRequiredLayoutForOutput() {
@@ -621,6 +494,102 @@ function revokeCombinedPdfUrl() {
 }
 
 const combinedPdfPageCount = computed(() => impositionOutputs.value.length * 2);
+const pdfOutputState = computed(() => ({
+  isGeneratingPdf: isGeneratingPdf.value,
+  pdfError: pdfError.value,
+  combinedPdfUrl: combinedPdfUrl.value,
+  combinedPdfPageCount: combinedPdfPageCount.value,
+}));
+const pdfOutputHandlers = {
+  generatePdfOutput,
+  downloadCombinedPdf,
+};
+
+const impositionControlForm = computed(() => ({
+  signatureCalcMode: signatureCalcMode.value,
+  pageWidth: pageWidth.value,
+  pageHeight: pageHeight.value,
+  sheetsPerSignature: sheetsPerSignature.value,
+  numberOfSignatures: numberOfSignatures.value,
+  outputWidth: outputWidth.value,
+  outputHeight: outputHeight.value,
+  verticalGap: verticalGap.value,
+  horizontalGap: horizontalGap.value,
+  showCropMarks: showCropMarks.value,
+  cropMarkOffset: cropMarkOffset.value,
+  cropMarkLength: cropMarkLength.value,
+  numberOfPages: numberOfPages.value,
+  outputFoldAxis: outputFoldAxis.value,
+}));
+
+const impositionControlSummary = computed(() => ({
+  uploadedPageCount: uploadedPageCount.value,
+  effectivePageCount: effectivePageCount.value,
+  usingManualPageCount: usingManualPageCount.value,
+  sheetsPerOutputCount: sheetsPerOutputCount.value,
+  outputLayoutCols: outputLayoutCols.value,
+  outputLayoutRows: outputLayoutRows.value,
+  pagesPerSignature: pagesPerSignature.value,
+  totalCapacityPages: totalCapacityPages.value,
+  blankPagesNeeded: blankPagesNeeded.value,
+}));
+
+const impositionControlLayout = computed(() => ({
+  outputLayoutGridMax: OUTPUT_LAYOUT_GRID_MAX,
+  layoutCellInDragPreview,
+  layoutCellCommitted,
+  layoutPreview: layoutPreview.value,
+  layoutFit: layoutFit.value,
+  formatInchesLabel,
+}));
+
+const impositionControlHandlers = {
+  onNumberOfPagesInput,
+  onSheetsPerSignatureInput,
+  onNumberOfSignaturesInput,
+  onOutputLayoutPointerDown,
+  onOutputLayoutPointerEnter,
+};
+
+function onImpositionControlFieldUpdate({ key, value }) {
+  switch (key) {
+    case "signatureCalcMode":
+      signatureCalcMode.value = value;
+      break;
+    case "pageWidth":
+      pageWidth.value = value;
+      break;
+    case "pageHeight":
+      pageHeight.value = value;
+      break;
+    case "outputWidth":
+      outputWidth.value = value;
+      break;
+    case "outputHeight":
+      outputHeight.value = value;
+      break;
+    case "verticalGap":
+      verticalGap.value = value;
+      break;
+    case "horizontalGap":
+      horizontalGap.value = value;
+      break;
+    case "showCropMarks":
+      showCropMarks.value = value;
+      break;
+    case "cropMarkOffset":
+      cropMarkOffset.value = value;
+      break;
+    case "cropMarkLength":
+      cropMarkLength.value = value;
+      break;
+    case "outputFoldAxis":
+      outputFoldAxis.value = value;
+      break;
+    default:
+      break;
+  }
+}
 
 function triggerDownload(url, fileName) {
   const link = document.createElement("a");
@@ -1123,360 +1092,15 @@ async function generatePdfOutput() {
         signature imposition for printing.
       </p>
 
-      <div class="grid">
-        <div class="field field-full">
-          <span>Signature Calculation Mode</span>
-          <div class="mode-toggle">
-            <label>
-              <input
-                v-model="signatureCalcMode"
-                type="radio"
-                value="sheets-fixed"
-              />
-              Lock Sheets Per Signature (auto-calculate Number of Signatures)
-            </label>
-            <label>
-              <input
-                v-model="signatureCalcMode"
-                type="radio"
-                value="signatures-fixed"
-              />
-              Lock Number of Signatures (auto-calculate Sheets Per Signature)
-            </label>
-          </div>
-        </div>
-
-        <div class="field field-full size-groups">
-          <section class="size-group">
-            <h3>Page</h3>
-            <label class="field">
-              <span>Width (inches)</span>
-              <input
-                v-model.number="pageWidth"
-                type="number"
-                min="0.1"
-                step="0.1"
-              />
-            </label>
-            <label class="field">
-              <span>Height (inches)</span>
-              <input
-                v-model.number="pageHeight"
-                type="number"
-                min="0.1"
-                step="0.1"
-              />
-            </label>
-          </section>
-
-          <section class="size-group">
-            <h3>Signatures</h3>
-            <label class="field">
-              <span>Sheets Per Signature</span>
-              <input
-                :value="sheetsPerSignature"
-                type="number"
-                min="1"
-                step="1"
-                :disabled="signatureCalcMode === 'signatures-fixed'"
-                @input="onSheetsPerSignatureInput"
-              />
-              <small v-if="signatureCalcMode === 'signatures-fixed'"
-                >Auto-calculated from uploaded pages and fixed
-                signatures.</small
-              >
-            </label>
-            <label class="field">
-              <span>Number of Signatures</span>
-              <input
-                :value="numberOfSignatures"
-                type="number"
-                min="1"
-                step="1"
-                :disabled="signatureCalcMode === 'sheets-fixed'"
-                @input="onNumberOfSignaturesInput"
-              />
-              <small v-if="signatureCalcMode === 'sheets-fixed'"
-                >Auto-calculated from uploaded pages and fixed sheets per
-                signature.</small
-              >
-            </label>
-          </section>
-
-          <section class="size-group">
-            <h3>Output</h3>
-            <label class="field">
-              <span>Width (inches)</span>
-              <input
-                v-model.number="outputWidth"
-                type="number"
-                min="0.1"
-                step="0.1"
-              />
-            </label>
-            <label class="field">
-              <span>Height (inches)</span>
-              <input
-                v-model.number="outputHeight"
-                type="number"
-                min="0.1"
-                step="0.1"
-              />
-            </label>
-          </section>
-        </div>
-
-        <div class="field field-full size-groups">
-          <section class="size-group size-group--gaps">
-            <h3>Gaps</h3>
-            <label class="field">
-              <span>Vertical gap (in)</span>
-              <input
-                v-model.number="verticalGap"
-                type="number"
-                min="0"
-                step="0.01"
-              />
-            </label>
-            <label class="field">
-              <span>Horizontal gap (in)</span>
-              <input
-                v-model.number="horizontalGap"
-                type="number"
-                min="0"
-                step="0.01"
-              />
-            </label>
-          </section>
-          <section class="size-group size-group--gaps">
-            <h3>Crop marks</h3>
-            <label class="field checkbox-field" for="show-crop-marks">
-              <input
-                id="show-crop-marks"
-                v-model="showCropMarks"
-                type="checkbox"
-              />
-              <span>Show crop marks</span>
-            </label>
-            <label class="field">
-              <span>Crop Mark Offset (in)</span>
-              <input
-                v-model.number="cropMarkOffset"
-                type="number"
-                min="0.01"
-                step="0.01"
-                :disabled="!showCropMarks"
-              />
-            </label>
-            <label class="field">
-              <span>Crop Mark Length (in)</span>
-              <input
-                v-model.number="cropMarkLength"
-                type="number"
-                min="0.01"
-                step="0.01"
-                :disabled="!showCropMarks"
-              />
-            </label>
-          </section>
-          <section class="size-group size-group--summary">
-            <label class="field">
-              <span>Number of Pages (used when no images are uploaded)</span>
-              <input
-                :value="numberOfPages"
-                type="number"
-                min="0"
-                step="1"
-                :disabled="uploadedPageCount > 0"
-                @input="onNumberOfPagesInput"
-              />
-              <small v-if="uploadedPageCount > 0">
-                Disabled while images are uploaded (using
-                {{ uploadedPageCount }} uploaded page{{
-                  uploadedPageCount === 1 ? "" : "s"
-                }}
-                instead).
-              </small>
-              <small v-else>
-                Generating placeholders for {{ effectivePageCount }} page{{
-                  effectivePageCount === 1 ? "" : "s"
-                }}.
-              </small>
-            </label>
-            <h3>Imposition summary</h3>
-            <div class="stats stats--summary">
-              <p>
-                <strong>Sheets per output:</strong>
-                {{ sheetsPerOutputCount }} ({{ outputLayoutCols }} ×
-                {{ outputLayoutRows }})
-              </p>
-              <p>
-                <strong>Pages per signature:</strong> {{ pagesPerSignature }}
-              </p>
-              <p>
-                <strong>Total page capacity:</strong> {{ totalCapacityPages }}
-              </p>
-              <p>
-                <strong>Input page source:</strong>
-                {{
-                  usingManualPageCount
-                    ? `Manual (${effectivePageCount} pages)`
-                    : `Uploaded images (${effectivePageCount} pages)`
-                }}
-              </p>
-              <p><strong>Blank pages needed:</strong> {{ blankPagesNeeded }}</p>
-            </div>
-          </section>
-        </div>
-      </div>
-
-      <hr />
-
-      <!-- <div class="imposition">
-        
-      </div> -->
+      <SignatureImpositionControls
+        :form="impositionControlForm"
+        :summary="impositionControlSummary"
+        :layout="impositionControlLayout"
+        :handlers="impositionControlHandlers"
+        @update:field="onImpositionControlFieldUpdate"
+      />
 
       <div class="pdf-output">
-        <div class="pdf-output-top-row">
-          <div class="pdf-output-controls-column">
-            <div class="field">
-              <span>Fold between page halves (each grid cell)</span>
-              <div class="mode-toggle mode-toggle-inline">
-                <label>
-                  <input
-                    v-model="outputFoldAxis"
-                    type="radio"
-                    value="vertical"
-                  />
-                  Vertical fold (pages left and right)
-                </label>
-                <label>
-                  <input
-                    v-model="outputFoldAxis"
-                    type="radio"
-                    value="horizontal"
-                  />
-                  Horizontal fold (pages stacked)
-                </label>
-              </div>
-              <small
-                >Each grid cell is one physical sheet. Gaps and crop marks are
-                in the row under Page / Signatures / Output.</small
-              >
-            </div>
-            <div class="field output-layout-field">
-              <span>Sheets on output (drag cells)</span>
-              <p class="output-layout-summary">
-                {{ outputLayoutCols }}×{{ outputLayoutRows }} ({{
-                  sheetsPerOutputCount
-                }}
-                sheet{{ sheetsPerOutputCount === 1 ? "" : "s" }})
-              </p>
-              <div
-                class="output-layout-grid"
-                role="grid"
-                :aria-label="`Select output layout, currently ${outputLayoutCols} by ${outputLayoutRows}`"
-              >
-                <div
-                  v-for="row in OUTPUT_LAYOUT_GRID_MAX"
-                  :key="`layout-row-${row}`"
-                  class="output-layout-row"
-                >
-                  <button
-                    v-for="col in OUTPUT_LAYOUT_GRID_MAX"
-                    :key="`layout-cell-${row}-${col}`"
-                    type="button"
-                    class="output-layout-cell"
-                    :class="{
-                      'output-layout-cell--preview': layoutCellInDragPreview(
-                        col - 1,
-                        row - 1,
-                      ),
-                      'output-layout-cell--active': layoutCellCommitted(
-                        col - 1,
-                        row - 1,
-                      ),
-                    }"
-                    :aria-pressed="
-                      layoutCellCommitted(col - 1, row - 1) ? 'true' : 'false'
-                    "
-                    @pointerdown="
-                      onOutputLayoutPointerDown(col - 1, row - 1, $event)
-                    "
-                    @pointerenter="onOutputLayoutPointerEnter(col - 1, row - 1)"
-                  />
-                </div>
-              </div>
-              <small
-                >Click or drag to select a rectangle. Each cell is one sheet
-                (two pages touch at the fold). Spacing between cells uses the
-                gaps in the row under Page / Signatures / Output.</small
-              >
-            </div>
-          </div>
-          <div class="pdf-output-preview-column">
-            <h2>Actual-Size PDF Output</h2>
-            <div class="layout-preview">
-              <svg
-                class="layout-preview-svg"
-                :viewBox="`0 0 ${layoutPreview.outputWidth} ${layoutPreview.outputHeight}`"
-                role="img"
-                aria-label="Layout preview for sheets on output sheet"
-              >
-                <rect
-                  x="0"
-                  y="0"
-                  :width="layoutPreview.outputWidth"
-                  :height="layoutPreview.outputHeight"
-                  class="preview-output-boundary"
-                />
-                <g
-                  v-for="(sheet, index) in layoutPreview.sheets"
-                  :key="`sheet-preview-${index}`"
-                >
-                  <rect
-                    :x="sheet.pageA.x"
-                    :y="sheet.pageA.y"
-                    :width="sheet.pageA.width"
-                    :height="sheet.pageA.height"
-                    class="preview-sheet"
-                  />
-                  <rect
-                    :x="sheet.pageB.x"
-                    :y="sheet.pageB.y"
-                    :width="sheet.pageB.width"
-                    :height="sheet.pageB.height"
-                    class="preview-sheet"
-                  />
-                </g>
-              </svg>
-              <p class="note">
-                Output: {{ formatInchesLabel(layoutPreview.outputWidth) }}" x
-                {{ formatInchesLabel(layoutPreview.outputHeight) }}" | Required:
-                {{ formatInchesLabel(layoutPreview.requiredWidth) }}" x
-                {{ formatInchesLabel(layoutPreview.requiredHeight) }}"
-              </p>
-              <p class="note">
-                Sheet footprint:
-                {{ formatInchesLabel(layoutPreview.sheetLayoutWidth) }}" x
-                {{ formatInchesLabel(layoutPreview.sheetLayoutHeight) }}". Fold:
-                {{
-                  layoutPreview.foldHorizontal
-                    ? "horizontal (stacked)"
-                    : "vertical (left and right)"
-                }}
-                . Between columns:
-                {{ formatInchesLabel(layoutPreview.gapBetweenCols) }}"; between
-                rows: {{ formatInchesLabel(layoutPreview.gapBetweenRows) }}".
-              </p>
-            </div>
-          </div>
-        </div>
-        <p v-if="!layoutFit.fits" class="warning">
-          This combination overflows the output page at actual size, which
-          causes clipped scaling/crop marks. Reduce page size, sheet footprint,
-          or gap values.
-        </p>
 
         <div class="grid" style="margin-top: 1rem">
           <label class="field">
@@ -1519,36 +1143,7 @@ async function generatePdfOutput() {
           </label>
         </div>
 
-        <div class="actions">
-          <button
-            type="button"
-            class="primary-button"
-            :disabled="isGeneratingPdf"
-            @click="generatePdfOutput"
-          >
-            {{ isGeneratingPdf ? "Generating..." : "Generate PDF Output" }}
-          </button>
-          <small v-if="pdfError" class="error-text">{{ pdfError }}</small>
-        </div>
-
-        <div v-if="combinedPdfUrl" class="download-group">
-          <button
-            type="button"
-            class="small-button"
-            @click="downloadCombinedPdf"
-          >
-            Download PDF ({{ combinedPdfPageCount }} page{{
-              combinedPdfPageCount === 1 ? "" : "s"
-            }})
-          </button>
-        </div>
-
-        <div v-if="combinedPdfUrl" class="pdf-preview-single">
-          <section class="pdf-pane pdf-pane-wide">
-            <h4>Combined PDF preview</h4>
-            <iframe :src="combinedPdfUrl" title="Combined PDF Preview"></iframe>
-          </section>
-        </div>
+        <PdfOutputActions :state="pdfOutputState" :handlers="pdfOutputHandlers" />
       </div>
     </section>
   </main>
