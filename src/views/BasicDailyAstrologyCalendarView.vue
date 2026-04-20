@@ -8,6 +8,12 @@ import SignatureImpositionControls from "../components/SignatureImpositionContro
 import PdfOutputActions from "../components/PdfOutputActions.vue";
 import AstrologyEventsPanel from "../components/AstrologyEventsPanel.vue";
 import { getMoonTithiStep } from "../astrology/moonTithiDisplay";
+import {
+  getPlanetKeysFromNames,
+  getPlanetUnicodeFallback,
+  getZodiacKeysFromNames,
+  getZodiacUnicodeFallback,
+} from "../astrology/physisSymbolMap";
 
 const today = new Date();
 const plusThirty = new Date(today);
@@ -54,6 +60,11 @@ const astrologyContext = ref({
   startDate: "",
   endDate: "",
 });
+
+const planetKeys = getPlanetKeysFromNames();
+const zodiacKeys = getZodiacKeysFromNames();
+const planetUnicodeFallback = getPlanetUnicodeFallback();
+const zodiacUnicodeFallback = getZodiacUnicodeFallback();
 
 const pagesPerSheet = 4;
 const pagesPerSignature = computed(
@@ -1054,6 +1065,54 @@ function dayHasEclipse(dateKey) {
   });
 }
 
+function signElementClass(signName) {
+  const map = {
+    Aries: "sign-fire",
+    Leo: "sign-fire",
+    Sagittarius: "sign-fire",
+    Taurus: "sign-earth",
+    Virgo: "sign-earth",
+    Capricorn: "sign-earth",
+    Gemini: "sign-air",
+    Libra: "sign-air",
+    Aquarius: "sign-air",
+    Cancer: "sign-water",
+    Scorpio: "sign-water",
+    Pisces: "sign-water",
+  };
+  return map[signName] || "";
+}
+
+function dayFooterSunMoonGlyphs(dateKey) {
+  const entry = dayTithiDetails(dateKey).sunMoon;
+  if (!entry?.sunSign || !entry?.moonSign) {
+    return null;
+  }
+
+  return {
+    sun: {
+      planetKey: planetKeys.Sun || "",
+      zodiacKey: zodiacKeys[entry.sunSign] || "",
+      planetUnicode: planetUnicodeFallback.sun || "",
+      zodiacUnicode: zodiacUnicodeFallback[entry.sunSign] || "",
+      elementClass: signElementClass(entry.sunSign),
+    },
+    moon: {
+      planetKey: planetKeys.Moon || "",
+      zodiacKey: zodiacKeys[entry.moonSign] || "",
+      planetUnicode: planetUnicodeFallback.moon || "",
+      zodiacUnicode: zodiacUnicodeFallback[entry.moonSign] || "",
+      elementClass: signElementClass(entry.moonSign),
+    },
+  };
+}
+
+function primaryTithiStep(dateKey) {
+  const primary = dayTithiDetails(dateKey).primaryTithi;
+  if (typeof primary !== "number") return null;
+  return getMoonTithiStep(primary);
+}
+
 function onAstrologyEventsByDateUpdate(nextEventsByDate) {
   astrologyEventsByDate.value = nextEventsByDate ?? {};
 }
@@ -1198,37 +1257,26 @@ function toDateInputValue(date) {
             v-for="page in calendarPages"
             :key="page.key"
             :ref="(el) => setDateCardRef(page.key, el)"
-            class="calendar-day-card"
+            class="calendar-day-card calendar-page--day"
           >
-            <header class="calendar-day-header">
-              <p class="calendar-day-title">
+            <header class="day-page-header">
+              <p class="header-day">
                 {{ page.dayNumber }} {{ page.dayLongLabel }}
               </p>
+              <span
+                v-if="primaryTithiStep(page.key)"
+                class="tithi-tag tithi-tag--day-corner"
+                :class="`tithi-tag--${primaryTithiStep(page.key)?.colorKey}`"
+                :title="`Tithi ${dayTithiDetails(page.key).primaryTithi} (${primaryTithiStep(page.key)?.name})`"
+              >
+                {{ primaryTithiStep(page.key)?.name }}
+              </span>
             </header>
             <p class="calendar-day-iso">{{ page.fullDateLabel }}</p>
             <div
               v-if="dayTithiDetails(page.key).tithiNumbers.length"
               class="calendar-day-tithis"
             >
-              <span
-                v-if="dayTithiDetails(page.key).primaryTithi"
-                class="calendar-day-tithi-primary"
-                :class="{
-                  'calendar-day-tithi-primary--eclipse': dayHasEclipse(
-                    page.key,
-                  ),
-                }"
-                :title="`Primary tithi: ${dayTithiDetails(page.key).primaryTithi}`"
-              >
-                <img
-                  v-if="moonIconSrc(dayTithiDetails(page.key).primaryTithi)"
-                  :src="moonIconSrc(dayTithiDetails(page.key).primaryTithi)"
-                  class="calendar-day-tithi-icon"
-                  alt=""
-                  width="16"
-                  height="16"
-                />
-              </span>
               <span class="calendar-day-tithi-text">
                 <template
                   v-for="(tithiNumber, tithiIndex) in dayTithiDetails(page.key)
@@ -1274,12 +1322,12 @@ function toDateInputValue(date) {
                     :class="event.glyphRows[0].elementClass"
                   >
                     <span class="glyph-char">{{
-                      event.glyphRows[0].planetUnicode ||
-                      event.glyphRows[0].planetKey
+                      event.glyphRows[0].planetKey ||
+                      event.glyphRows[0].planetUnicode
                     }}</span>
                     <span class="glyph-char">{{
-                      event.glyphRows[0].zodiacUnicode ||
-                      event.glyphRows[0].zodiacKey
+                      event.glyphRows[0].zodiacKey ||
+                      event.glyphRows[0].zodiacUnicode
                     }}</span>
                     <span class="glyph-row-degree"
                       >{{ event.glyphRows[0].degree }}
@@ -1297,12 +1345,12 @@ function toDateInputValue(date) {
                     :class="event.glyphRows[1].elementClass"
                   >
                     <span class="glyph-char">{{
-                      event.glyphRows[1].planetUnicode ||
-                      event.glyphRows[1].planetKey
+                      event.glyphRows[1].planetKey ||
+                      event.glyphRows[1].planetUnicode
                     }}</span>
                     <span class="glyph-char">{{
-                      event.glyphRows[1].zodiacUnicode ||
-                      event.glyphRows[1].zodiacKey
+                      event.glyphRows[1].zodiacKey ||
+                      event.glyphRows[1].zodiacUnicode
                     }}</span>
                     <span class="glyph-row-degree"
                       >{{ event.glyphRows[1].degree }}
@@ -1321,10 +1369,10 @@ function toDateInputValue(date) {
                     :class="row.elementClass"
                   >
                     <span class="glyph-char">{{
-                      row.planetUnicode || row.planetKey
+                      row.planetKey || row.planetUnicode
                     }}</span>
                     <span class="glyph-char">{{
-                      row.zodiacUnicode || row.zodiacKey
+                      row.zodiacKey || row.zodiacUnicode
                     }}</span>
                     <span class="glyph-row-degree"
                       >{{ row.degree }} {{ row.signName }}</span
@@ -1346,6 +1394,55 @@ function toDateInputValue(date) {
                 </div>
               </li>
             </ul>
+            <footer class="page-day-footer">
+              <div
+                v-if="dayFooterSunMoonGlyphs(page.key)"
+                class="page-day-footer-glyphs"
+                aria-label="Sun and Moon at local noon"
+              >
+                <span
+                  class="page-day-footer-pair"
+                  :class="dayFooterSunMoonGlyphs(page.key).sun.elementClass"
+                >
+                  <span class="glyph-char">{{
+                    dayFooterSunMoonGlyphs(page.key).sun.planetKey ||
+                    dayFooterSunMoonGlyphs(page.key).sun.planetUnicode
+                  }}</span>
+                  <span class="glyph-char">{{
+                    dayFooterSunMoonGlyphs(page.key).sun.zodiacKey ||
+                    dayFooterSunMoonGlyphs(page.key).sun.zodiacUnicode
+                  }}</span>
+                </span>
+                <span
+                  class="page-day-footer-pair"
+                  :class="dayFooterSunMoonGlyphs(page.key).moon.elementClass"
+                >
+                  <span class="glyph-char">{{
+                    dayFooterSunMoonGlyphs(page.key).moon.planetKey ||
+                    dayFooterSunMoonGlyphs(page.key).moon.planetUnicode
+                  }}</span>
+                  <span class="glyph-char">{{
+                    dayFooterSunMoonGlyphs(page.key).moon.zodiacKey ||
+                    dayFooterSunMoonGlyphs(page.key).moon.zodiacUnicode
+                  }}</span>
+                </span>
+              </div>
+              <span
+                v-if="dayTithiDetails(page.key).primaryTithi"
+                class="page-moon-wrap page-moon-wrap--footer"
+                :class="{ 'page-moon-wrap--eclipse': dayHasEclipse(page.key) }"
+              >
+                <img
+                  v-if="moonIconSrc(dayTithiDetails(page.key).primaryTithi)"
+                  class="page-moon-icon page-moon-icon--footer"
+                  width="40"
+                  height="40"
+                  :src="moonIconSrc(dayTithiDetails(page.key).primaryTithi)"
+                  alt=""
+                  :title="`Primary tithi ${dayTithiDetails(page.key).primaryTithi}`"
+                />
+              </span>
+            </footer>
           </article>
         </div>
       </section>
@@ -1396,28 +1493,62 @@ function toDateInputValue(date) {
   aspect-ratio: var(--calendar-page-aspect-w) / var(--calendar-page-aspect-h);
   display: flex;
   flex-direction: column;
-  justify-content: flex-start;
-  overflow: hidden;
+  min-height: 0;
+  overflow: visible;
+  box-sizing: border-box;
+  font-family: Inter, "Avenir Next", Avenir, "Segoe UI", Roboto, sans-serif;
 }
 
-.calendar-day-header {
+.day-page-header {
   display: flex;
-  align-items: baseline;
-  justify-content: flex-start;
-  gap: 0.35rem;
+  justify-content: space-between;
+  align-items: flex-start;
+  gap: 1.5rem;
+  width: 100%;
+  margin-bottom: 0.35rem;
 }
 
-.calendar-day-title {
+.header-day {
   margin: 0;
-  font-size: 0.95rem;
-  line-height: 1.35;
-  color: #1d222f;
+  font-size: clamp(1.05rem, 2.8vw, 1.45rem);
   font-weight: 700;
-  letter-spacing: 0.01em;
+  letter-spacing: 0.04em;
+  line-height: 1.1;
+}
+
+.tithi-tag {
+  flex-shrink: 0;
+  font-size: 0.72rem;
+  font-weight: 700;
+  letter-spacing: 0.02em;
+  line-height: 1;
+  user-select: none;
+  min-width: 1.35rem;
+  text-align: center;
+}
+
+.tithi-tag--day-corner {
+  font-size: clamp(0.78rem, 2vw, 0.95rem);
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  line-height: 1.2;
+  padding-top: 0.12rem;
+}
+
+.tithi-tag--blue {
+  color: #005eff;
+}
+
+.tithi-tag--green {
+  color: #118b36;
+}
+
+.tithi-tag--red {
+  color: #d40000;
 }
 
 .calendar-day-iso {
-  margin: 0.55rem 0 0;
+  margin: 0 0 0.35rem;
   font-family:
     ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono",
     "Courier New", monospace;
@@ -1430,28 +1561,9 @@ function toDateInputValue(date) {
 .calendar-day-tithis {
   margin-top: 0.35rem;
   display: flex;
-  flex-wrap: nowrap;
-  align-items: center;
-  gap: 0.35rem;
-}
-
-.calendar-day-tithi-primary {
-  display: inline-flex;
-  align-items: center;
-  border-radius: 999px;
-  padding: 0.08rem;
-  background: #ffffff;
-  flex-shrink: 0;
-}
-
-.calendar-day-tithi-primary--eclipse {
-  border: 2px solid #ff6b6b;
-}
-
-.calendar-day-tithi-icon {
-  width: 14px;
-  height: 14px;
-  border-radius: 50%;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 0.15rem;
 }
 
 .calendar-day-tithi-text {
@@ -1484,61 +1596,121 @@ function toDateInputValue(date) {
 }
 
 .event-list--day {
-  margin-top: 0.2rem;
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  flex: 1 0 auto;
+  overflow: visible;
   display: flex;
   flex-direction: column;
+  justify-content: flex-start;
+  align-items: stretch;
+  align-content: flex-start;
   gap: 0;
+  padding-bottom: calc(3rem + 40px + 0.35rem);
 }
 
 .event-block {
   display: flex;
   flex-direction: column;
   gap: 0;
-  font-size: 0.74rem;
-  line-height: 1.2;
-  min-height: 1.8lh;
-  max-height: 2.8lh;
+  flex: none;
+  font-size: 0.98rem;
+  line-height: 1.22;
+  height: auto;
+  min-height: 2lh;
+  max-height: 3lh;
+  box-sizing: border-box;
   overflow: hidden;
   border-bottom: 1px solid #e6e6e6;
+  padding: 0;
 }
 
 .event-block:last-of-type {
   border-bottom: none;
 }
 
+.event-block:has(> .event-title-row:only-child) {
+  height: auto;
+  min-height: 1lh;
+  max-height: 2lh;
+}
+
+.event-block > .event-glyphs--day-lead {
+  flex: 0 0 1lh;
+  height: 1lh;
+  min-height: 1lh;
+  max-height: 1lh;
+  overflow: hidden;
+  flex-wrap: nowrap;
+  align-items: center;
+  padding: 0;
+}
+
+.event-block > .event-title-row {
+  flex: 0 0 auto;
+  height: auto;
+  min-height: 1lh;
+  max-height: 2lh;
+  overflow: hidden;
+  align-items: flex-start;
+  padding: 0;
+}
+
 .event-glyphs--day-lead {
   display: flex;
   flex-direction: row;
   flex-wrap: wrap;
-  gap: 0.25rem 0.75rem;
+  gap: 0.35rem 1.35rem;
   align-items: baseline;
+  justify-content: flex-start;
 }
 
 .event-glyphs--aspect-inline {
+  display: flex;
+  flex-direction: row;
   flex-wrap: nowrap;
-  gap: 0.2rem 0.35rem;
+  gap: 0.35rem 0.5rem;
+  align-items: baseline;
+  justify-content: flex-start;
+  width: 100%;
+}
+
+.event-glyphs--aspect-inline .glyph-row {
+  flex: 0 1 auto;
+  min-width: 0;
 }
 
 .glyph-aspect-char {
-  font-size: 0.8rem;
+  font-family: Physis, serif;
+  font-size: 1.05rem;
+  font-weight: 600;
   color: #111111;
   line-height: 1;
   flex-shrink: 0;
+  padding: 0 0.1rem;
 }
 
 .glyph-row {
   display: inline-flex;
   align-items: baseline;
-  gap: 0.2rem;
+  gap: 0.35rem;
   white-space: nowrap;
+  font-size: 0.98rem;
+  font-weight: 600;
 }
 
 .glyph-char {
-  font-size: 0.82rem;
+  font-size: 1.15rem;
+  font-family: Physis, serif;
   line-height: 1;
 }
 
 .glyph-row-degree {
+  font-weight: 700;
+}
+
+.calendar-page--day .glyph-row-degree {
   font-weight: 500;
 }
 
@@ -1546,20 +1718,22 @@ function toDateInputValue(date) {
   display: flex;
   justify-content: space-between;
   align-items: baseline;
-  gap: 0.45rem;
+  gap: 1rem;
+  width: 100%;
 }
 
 .event-title {
   margin: 0;
   flex: 1;
   min-width: 0;
-  font-size: 0.74rem;
+  font-size: 0.98rem;
   font-weight: 500;
   color: #000000;
-  line-height: 1.2;
+  line-height: 1.22;
   overflow: hidden;
   display: -webkit-box;
   -webkit-line-clamp: 2;
+  line-clamp: 2;
   -webkit-box-orient: vertical;
 }
 
@@ -1570,8 +1744,79 @@ function toDateInputValue(date) {
 .event-time {
   margin: 0;
   flex-shrink: 0;
-  font-size: 0.62rem;
+  font-size: 0.72rem;
+  font-weight: 400;
   color: #8a8a8a;
+  letter-spacing: 0.02em;
+}
+
+.page-day-footer {
+  position: absolute;
+  right: 0.85rem;
+  bottom: 0.85rem;
+  left: auto;
+  margin-top: 0;
+  display: flex;
+  justify-content: flex-end;
+  align-items: center;
+  gap: 1.7rem;
+  padding-top: 0;
+  z-index: 1;
+}
+
+.page-day-footer-glyphs {
+  display: inline-flex;
+  align-items: baseline;
+  gap: 0.7rem;
+}
+
+.page-day-footer-pair {
+  display: inline-flex;
+  align-items: baseline;
+  gap: 0.12rem;
+  font-weight: 600;
+}
+
+.page-day-footer .glyph-char {
+  font-family: Physis, serif;
+  font-size: 1.9rem;
+  line-height: 1;
+}
+
+.page-moon-wrap {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+  width: 48px;
+  height: 48px;
+  border-radius: 50%;
+  box-sizing: border-box;
+}
+
+.page-moon-wrap--eclipse {
+  border: 3px solid #ff6b6b;
+  background-color: transparent;
+}
+
+.page-moon-icon {
+  flex-shrink: 0;
+  width: 44px;
+  height: 44px;
+  object-fit: contain;
+  border-radius: 50%;
+  display: block;
+}
+
+.page-moon-wrap.page-moon-wrap--footer {
+  width: 44px;
+  height: 44px;
+}
+
+.page-moon-icon.page-moon-icon--footer {
+  width: 40px;
+  height: 40px;
 }
 
 .sign-fire {

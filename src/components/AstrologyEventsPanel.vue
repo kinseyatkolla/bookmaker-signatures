@@ -9,6 +9,24 @@ import {
 } from "../astrology/physisSymbolMap";
 import { buildMoonTithisForDateRange } from "../astrology/moonTithi";
 
+const DEFAULT_BIRTH_TIME_ZONE = "America/Chicago";
+const DEFAULT_BIRTH_LOCAL = {
+  year: 1984,
+  month: 2,
+  day: 18,
+  hour: 13,
+  minute: 54,
+  second: 0,
+};
+const DEFAULT_BIRTH_PLACE = {
+  query: "Kansas City, MO",
+  name: "Kansas City, Missouri, United States",
+  latitude: "39.0997",
+  longitude: "-94.5786",
+};
+
+const pad2 = (value) => String(value).padStart(2, "0");
+
 const props = defineProps({
   startDate: {
     type: String,
@@ -28,11 +46,16 @@ const emit = defineEmits([
 
 const apiBaseUrl = ref("http://localhost:3000/api");
 const isLoading = ref(false);
+const isLoadingBirthChart = ref(false);
 const searchingCurrentLocation = ref(false);
+const searchingBirthLocation = ref(false);
 const errorMessage = ref("");
 const didAttemptLoad = ref(false);
 const rawEvents = ref([]);
 const tithisByDate = ref({});
+const didFetchBirthChart = ref(false);
+const natalChartPreview = ref(null);
+const natalChartPreviewError = ref("");
 const locationTimeZone = ref(
   Intl.DateTimeFormat().resolvedOptions().timeZone || "UTC",
 );
@@ -42,6 +65,11 @@ const form = reactive({
   currentLocationName: "Manitou Springs, El Paso County, Colorado, United States",
   currentLatitude: "38.8597",
   currentLongitude: "-104.9172",
+  birthDateTime: "",
+  birthLocationQuery: DEFAULT_BIRTH_PLACE.query,
+  birthLocationName: DEFAULT_BIRTH_PLACE.name,
+  birthLatitude: DEFAULT_BIRTH_PLACE.latitude,
+  birthLongitude: DEFAULT_BIRTH_PLACE.longitude,
 });
 
 locationTimeZone.value = "America/Denver";
@@ -66,6 +94,19 @@ const zodiacElementBySign = {
   Pisces: "water",
 };
 
+const NATAL_CHART_PREVIEW_KEYS = [
+  "sun",
+  "moon",
+  "mercury",
+  "venus",
+  "mars",
+  "jupiter",
+  "saturn",
+  "uranus",
+  "neptune",
+  "pluto",
+];
+
 function parseDateInput(value) {
   if (!value) return null;
   const [year, month, day] = String(value).split("-").map(Number);
@@ -74,6 +115,74 @@ function parseDateInput(value) {
   }
   return new Date(year, month - 1, day, 12, 0, 0, 0);
 }
+
+function getTimeZoneOffsetMs(date, timeZone) {
+  const formatter = new Intl.DateTimeFormat("en-US", {
+    timeZone,
+    hour12: false,
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+    hour: "2-digit",
+    minute: "2-digit",
+    second: "2-digit",
+  });
+  const parts = formatter.formatToParts(date);
+  const getPart = (type) =>
+    Number(parts.find((piece) => piece.type === type)?.value || 0);
+  const asUtc = Date.UTC(
+    getPart("year"),
+    getPart("month") - 1,
+    getPart("day"),
+    getPart("hour"),
+    getPart("minute"),
+    getPart("second"),
+  );
+  return asUtc - date.getTime();
+}
+
+function convertZonedLocalToUtc(
+  year,
+  month,
+  day,
+  hour,
+  minute,
+  second,
+  timeZone,
+) {
+  const localAsIfUtc = Date.UTC(year, month - 1, day, hour, minute, second);
+  let guess = localAsIfUtc;
+  for (let i = 0; i < 3; i += 1) {
+    const offset = getTimeZoneOffsetMs(new Date(guess), timeZone);
+    guess = localAsIfUtc - offset;
+  }
+  return new Date(guess);
+}
+
+function formatDateTimeLocalFromParts(year, month, day, hour, minute) {
+  return `${year}-${pad2(month)}-${pad2(day)}T${pad2(hour)}:${pad2(minute)}`;
+}
+
+const defaultBirthDateTimeLocal = (() => {
+  const utcBirth = convertZonedLocalToUtc(
+    DEFAULT_BIRTH_LOCAL.year,
+    DEFAULT_BIRTH_LOCAL.month,
+    DEFAULT_BIRTH_LOCAL.day,
+    DEFAULT_BIRTH_LOCAL.hour,
+    DEFAULT_BIRTH_LOCAL.minute,
+    DEFAULT_BIRTH_LOCAL.second,
+    DEFAULT_BIRTH_TIME_ZONE,
+  );
+  return formatDateTimeLocalFromParts(
+    utcBirth.getFullYear(),
+    utcBirth.getMonth() + 1,
+    utcBirth.getDate(),
+    utcBirth.getHours(),
+    utcBirth.getMinutes(),
+  );
+})();
+
+form.birthDateTime = defaultBirthDateTimeLocal;
 
 const yearsToFetch = computed(() => {
   const start = parseDateInput(props.startDate);
@@ -394,6 +503,44 @@ const groupedEventsObject = computed(() => {
   return object;
 });
 
+const natalChartPreviewRows = computed(() => {
+  const data = natalChartPreview.value;
+  if (!data?.planets) return [];
+
+  const rows = [];
+  for (const key of NATAL_CHART_PREVIEW_KEYS) {
+    const planet = data.planets[key];
+    if (!planet) continue;
+    const sign = planet.zodiacSignName;
+    rows.push({
+      id: key,
+      label: formatPlanetLabel(key),
+      position: `${planet.degreeFormatted || ""} ${sign || ""}`.trim(),
+      elementClass: signElementClass(sign),
+    });
+  }
+
+  const houses = data.houses;
+  if (houses?.ascendantSign) {
+    rows.push({
+      id: "asc",
+      label: "Ascendant",
+      position: `${houses.ascendantDegree || ""} ${houses.ascendantSign}`.trim(),
+      elementClass: signElementClass(houses.ascendantSign),
+    });
+  }
+  if (houses?.mcSign) {
+    rows.push({
+      id: "mc",
+      label: "Midheaven",
+      position: `${houses.mcDegree || ""} ${houses.mcSign}`.trim(),
+      elementClass: signElementClass(houses.mcSign),
+    });
+  }
+
+  return rows;
+});
+
 const astrologyContext = computed(() => ({
   locationName: form.currentLocationName || "",
   latitude: form.currentLatitude || "",
@@ -436,19 +583,148 @@ function parseCoordinates(latitudeValue, longitudeValue) {
   return { latitude, longitude };
 }
 
-function buildRequestBody(year) {
+function buildNatalChartPayload() {
+  if (!form.birthDateTime) return null;
+
+  const birthDate = new Date(form.birthDateTime);
+  if (Number.isNaN(birthDate.getTime())) {
+    throw new Error("Birth Date/Time is invalid.");
+  }
+
+  const birthCoords = parseCoordinates(form.birthLatitude, form.birthLongitude);
+  if (!birthCoords) {
+    throw new Error(
+      "Birth location coordinates are required when Birth Date/Time is provided.",
+    );
+  }
+
+  const utcBirth = convertZonedLocalToUtc(
+    birthDate.getFullYear(),
+    birthDate.getMonth() + 1,
+    birthDate.getDate(),
+    birthDate.getHours(),
+    birthDate.getMinutes(),
+    birthDate.getSeconds(),
+    DEFAULT_BIRTH_TIME_ZONE,
+  );
+
+  return {
+    year: utcBirth.getUTCFullYear(),
+    month: utcBirth.getUTCMonth() + 1,
+    day: utcBirth.getUTCDate(),
+    hour: utcBirth.getUTCHours(),
+    minute: utcBirth.getUTCMinutes(),
+    second: utcBirth.getUTCSeconds(),
+    latitude: birthCoords.latitude,
+    longitude: birthCoords.longitude,
+  };
+}
+
+const hasValidNatalData = computed(() => {
+  if (!form.birthDateTime) return false;
+  const birthDate = new Date(form.birthDateTime);
+  if (Number.isNaN(birthDate.getTime())) return false;
+  return !!parseCoordinates(form.birthLatitude, form.birthLongitude);
+});
+
+const natalTransitEventCount = computed(() =>
+  rawEvents.value.filter((event) => event?.type === "aspect" && event?.isNatalTransit)
+    .length,
+);
+
+watch(hasValidNatalData, (isValid) => {
+  if (!isValid) return;
+});
+
+watch(
+  () => [
+    form.birthDateTime,
+    form.birthLatitude,
+    form.birthLongitude,
+    form.birthLocationName,
+  ],
+  () => {
+    didFetchBirthChart.value = false;
+    natalChartPreview.value = null;
+    natalChartPreviewError.value = "";
+  },
+);
+
+function buildRequestBody(year, options = { includeNatalChart: false }) {
   const currentCoords = parseCoordinates(form.currentLatitude, form.currentLongitude);
   if (!currentCoords) {
     throw new Error(
       "Current location coordinates are required. Use Find Current Location first.",
     );
   }
-  return {
+  const payload = {
     year: Number(year),
     latitude: currentCoords.latitude,
     longitude: currentCoords.longitude,
     sampleInterval: 6,
   };
+  if (!options.includeNatalChart) return payload;
+  const natalChart = buildNatalChartPayload();
+  if (natalChart) {
+    payload.natalChart = natalChart;
+  }
+  return payload;
+}
+
+async function getBirthChartPreview() {
+  errorMessage.value = "";
+  natalChartPreviewError.value = "";
+  natalChartPreview.value = null;
+  didFetchBirthChart.value = false;
+
+  let natalChart;
+  try {
+    natalChart = buildNatalChartPayload();
+    if (!natalChart) {
+      throw new Error("Birth Date/Time and Birth Location are required.");
+    }
+  } catch (error) {
+    natalChartPreviewError.value =
+      error instanceof Error ? error.message : "Birth chart input is invalid.";
+    return;
+  }
+
+  isLoadingBirthChart.value = true;
+  try {
+    const response = await fetch(`${apiBaseUrl.value}/astrology/chart`, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({
+        year: natalChart.year,
+        month: natalChart.month,
+        day: natalChart.day,
+        hour: natalChart.hour,
+        minute: natalChart.minute,
+        second: natalChart.second ?? 0,
+        latitude: natalChart.latitude,
+        longitude: natalChart.longitude,
+      }),
+    });
+
+    if (!response.ok) {
+      throw new Error(`Birth chart preview failed (HTTP ${response.status}).`);
+    }
+
+    const payload = await response.json();
+    if (payload?.success === false) {
+      throw new Error(String(payload.error || "Birth chart preview failed."));
+    }
+
+    natalChartPreview.value = payload?.data ?? null;
+    didFetchBirthChart.value = true;
+  } catch (error) {
+    natalChartPreviewError.value =
+      error instanceof Error ? error.message : "Could not fetch birth chart preview.";
+  } finally {
+    isLoadingBirthChart.value = false;
+  }
 }
 
 async function findLocation(query) {
@@ -509,6 +785,22 @@ async function findCurrentLocation() {
   }
 }
 
+async function findBirthLocation() {
+  errorMessage.value = "";
+  searchingBirthLocation.value = true;
+  try {
+    const result = await findLocation(form.birthLocationQuery);
+    form.birthLocationName = result.name;
+    form.birthLatitude = result.latitude;
+    form.birthLongitude = result.longitude;
+  } catch (error) {
+    errorMessage.value =
+      error instanceof Error ? error.message : "Could not find birth location.";
+  } finally {
+    searchingBirthLocation.value = false;
+  }
+}
+
 async function loadAstrologyEvents() {
   errorMessage.value = "";
   didAttemptLoad.value = true;
@@ -527,29 +819,68 @@ async function loadAstrologyEvents() {
 
   isLoading.value = true;
   try {
-    const responses = await Promise.all(
-      yearsToFetch.value.map((year) =>
-        fetch(`${apiBaseUrl.value}/astrology/year-ephemeris`, {
-          method: "POST",
-          headers: {
-            "Content-Type": "application/json",
+    const includeNatalTransits =
+      hasValidNatalData.value && didFetchBirthChart.value && !!natalChartPreview.value;
+    const yearPayloads = await Promise.all(
+      yearsToFetch.value.map(async (year) => {
+        const mundaneResponse = await fetch(
+          `${apiBaseUrl.value}/astrology/year-ephemeris`,
+          {
+            method: "POST",
+            headers: {
+              "Content-Type": "application/json",
+            },
+            body: JSON.stringify(
+              buildRequestBody(year, { includeNatalChart: false }),
+            ),
           },
-          body: JSON.stringify(buildRequestBody(year)),
-        }),
-      ),
+        );
+
+        if (!mundaneResponse.ok) {
+          throw new Error(`Request failed with status ${mundaneResponse.status}`);
+        }
+
+        const mundanePayload = await mundaneResponse.json();
+        const mundaneEvents =
+          mundanePayload?.data?.events ?? mundanePayload?.events ?? [];
+        const mundaneList = Array.isArray(mundaneEvents)
+          ? mundaneEvents.filter(
+              (event) => !(event?.type === "aspect" && event?.isNatalTransit),
+            )
+          : [];
+
+        let natalTransitEvents = [];
+        if (includeNatalTransits) {
+          const natalResponse = await fetch(
+            `${apiBaseUrl.value}/astrology/year-ephemeris`,
+            {
+              method: "POST",
+              headers: {
+                "Content-Type": "application/json",
+              },
+              body: JSON.stringify(
+                buildRequestBody(year, { includeNatalChart: true }),
+              ),
+            },
+          );
+          if (!natalResponse.ok) {
+            throw new Error(
+              `Natal transit request failed with status ${natalResponse.status}`,
+            );
+          }
+          const natalPayload = await natalResponse.json();
+          const natalEvents = natalPayload?.data?.events ?? natalPayload?.events ?? [];
+          natalTransitEvents = Array.isArray(natalEvents)
+            ? natalEvents.filter(
+                (event) => event?.type === "aspect" && event?.isNatalTransit,
+              )
+            : [];
+        }
+
+        return [...mundaneList, ...natalTransitEvents];
+      }),
     );
-
-    const invalidResponse = responses.find((response) => !response.ok);
-    if (invalidResponse) {
-      throw new Error(`Request failed with status ${invalidResponse.status}`);
-    }
-
-    const payloads = await Promise.all(responses.map((response) => response.json()));
-    const merged = payloads.flatMap((payload) => {
-      const events = payload?.data?.events ?? payload?.events ?? [];
-      return Array.isArray(events) ? events : [];
-    });
-    rawEvents.value = merged;
+    rawEvents.value = yearPayloads.flat();
 
     const currentCoords = parseCoordinates(
       form.currentLatitude,
@@ -585,6 +916,15 @@ watch(
     }
   },
 );
+
+watch(
+  () => didFetchBirthChart.value,
+  () => {
+    if (didAttemptLoad.value) {
+      loadAstrologyEvents();
+    }
+  },
+);
 </script>
 
 <template>
@@ -593,31 +933,122 @@ watch(
     <p class="astrology-panel-subtitle">
       Load astrology events for this date range using yearly backend requests.
     </p>
-    <div class="grid astrology-controls-grid">
-      <label class="field" for="astrology-current-location-query">
-        <span>Current Location Search</span>
-        <input
-          id="astrology-current-location-query"
-          v-model="form.currentLocationQuery"
-          name="astrology-current-location-query"
-          type="text"
-          placeholder="Los Angeles, CA"
-          autocomplete="street-address"
-        />
-      </label>
-    </div>
+    <div class="astrology-two-col">
+      <div class="astrology-left">
+        <div class="grid astrology-controls-grid">
+          <label class="field" for="astrology-current-location-query">
+            <span>Current Location Search</span>
+            <input
+              id="astrology-current-location-query"
+              v-model="form.currentLocationQuery"
+              name="astrology-current-location-query"
+              type="text"
+              placeholder="Los Angeles, CA"
+              autocomplete="street-address"
+            />
+          </label>
+          <label class="field" for="astrology-birth-datetime">
+            <span>Birth Date/Time</span>
+            <input
+              id="astrology-birth-datetime"
+              v-model="form.birthDateTime"
+              name="astrology-birth-datetime"
+              type="datetime-local"
+              autocomplete="bday"
+            />
+          </label>
+          <label class="field" for="astrology-birth-location-query">
+            <span>Birth Location Search</span>
+            <input
+              id="astrology-birth-location-query"
+              v-model="form.birthLocationQuery"
+              name="astrology-birth-location-query"
+              type="text"
+              placeholder="Kansas City, MO"
+              autocomplete="street-address"
+            />
+          </label>
+        </div>
 
-    <div class="astrology-actions">
+        <div class="astrology-actions">
+          <button
+            class="small-button"
+            type="button"
+            :disabled="searchingCurrentLocation"
+            @click="findCurrentLocation"
+          >
+            {{ searchingCurrentLocation ? "Searching..." : "Find Current Location" }}
+          </button>
+          <button
+            class="small-button"
+            type="button"
+            :disabled="searchingBirthLocation"
+            @click="findBirthLocation"
+          >
+            {{ searchingBirthLocation ? "Searching Birth..." : "Find Birth Location" }}
+          </button>
+          <button
+            class="small-button"
+            type="button"
+            :disabled="isLoadingBirthChart || !hasValidNatalData"
+            @click="getBirthChartPreview"
+          >
+            {{ isLoadingBirthChart ? "Fetching Chart..." : "Get Birth Chart" }}
+          </button>
+        </div>
+
+        <p v-if="!didFetchBirthChart" class="note">
+          Fetch and preview the birth chart before loading astrology events if you
+          want natal transits included automatically.
+        </p>
+
+        <p v-if="form.currentLocationName" class="note">
+          {{ form.currentLocationName }} ({{
+            Number(form.currentLatitude).toFixed(4)
+          }}, {{ Number(form.currentLongitude).toFixed(4) }}) ·
+          {{ locationTimeZone }}
+        </p>
+        <p v-if="form.birthLocationName" class="note">
+          Natal: {{ form.birthLocationName }} ({{
+            Number(form.birthLatitude).toFixed(4)
+          }}, {{ Number(form.birthLongitude).toFixed(4) }}) ·
+          {{ form.birthDateTime || "No birth date/time" }}
+        </p>
+        <p v-if="errorMessage" class="error-text">{{ errorMessage }}</p>
+        <p v-else-if="didAttemptLoad" class="note">
+          Loaded {{ rawEvents.length }} events from
+          {{ yearsToFetch.length === 1 ? yearsToFetch[0] : yearsToFetch.join(", ") }}.
+          <template v-if="didFetchBirthChart && hasValidNatalData">
+            Natal transits: {{ natalTransitEventCount }}.
+          </template>
+        </p>
+      </div>
+
+      <div class="astrology-right">
+        <p v-if="natalChartPreviewError" class="error-text">{{ natalChartPreviewError }}</p>
+        <div v-if="natalChartPreviewRows.length" class="natal-preview">
+          <h3>Natal Chart Preview</h3>
+          <ul class="natal-preview-list">
+            <li
+              v-for="row in natalChartPreviewRows"
+              :key="row.id"
+              class="natal-preview-row"
+              :class="row.elementClass"
+            >
+              <span class="natal-preview-label">{{ row.label }}</span>
+              <span>{{ row.position }}</span>
+            </li>
+          </ul>
+        </div>
+        <div v-else class="natal-preview natal-preview--placeholder">
+          <h3>Natal Chart Preview</h3>
+          <p class="note">Use Get Birth Chart to load planet, Ascendant, and Midheaven placements.</p>
+        </div>
+      </div>
+    </div>
+    <div class="astrology-load-row">
       <button
-        class="small-button"
-        type="button"
-        :disabled="searchingCurrentLocation"
-        @click="findCurrentLocation"
-      >
-        {{ searchingCurrentLocation ? "Searching..." : "Find Current Location" }}
-      </button>
-      <button
-        class="primary-button"
+        class="primary-button astrology-load-button"
         type="button"
         :disabled="isLoading"
         @click="loadAstrologyEvents"
@@ -625,18 +1056,6 @@ watch(
         {{ isLoading ? "Loading..." : "Load Astrology Events" }}
       </button>
     </div>
-
-    <p v-if="form.currentLocationName" class="note">
-      {{ form.currentLocationName }} ({{
-        Number(form.currentLatitude).toFixed(4)
-      }}, {{ Number(form.currentLongitude).toFixed(4) }}) ·
-      {{ locationTimeZone }}
-    </p>
-    <p v-if="errorMessage" class="error-text">{{ errorMessage }}</p>
-    <p v-else-if="didAttemptLoad" class="note">
-      Loaded {{ rawEvents.length }} events from
-      {{ yearsToFetch.length === 1 ? yearsToFetch[0] : yearsToFetch.join(", ") }}.
-    </p>
   </section>
 </template>
 
@@ -664,9 +1083,72 @@ watch(
   margin-bottom: 0.75rem;
 }
 
+.astrology-two-col {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 0.9fr);
+  gap: 1rem;
+  align-items: start;
+}
+
+.astrology-left,
+.astrology-right {
+  min-width: 0;
+}
+
 .astrology-actions {
   display: flex;
   flex-wrap: wrap;
   gap: 0.5rem;
+}
+
+.astrology-load-row {
+  margin-top: 0.8rem;
+}
+
+.astrology-load-button {
+  width: 100%;
+  justify-content: center;
+}
+
+.natal-preview {
+  margin-top: 0;
+  border: 1px solid #e2e2e5;
+  border-radius: 8px;
+  background: #ffffff;
+  padding: 0.55rem 0.65rem;
+}
+
+.natal-preview--placeholder {
+  min-height: 100%;
+}
+
+.natal-preview h3 {
+  margin: 0;
+  font-size: 0.9rem;
+}
+
+.natal-preview-list {
+  list-style: none;
+  margin: 0.45rem 0 0;
+  padding: 0;
+  display: grid;
+  gap: 0.2rem;
+}
+
+.natal-preview-row {
+  display: flex;
+  justify-content: space-between;
+  gap: 0.65rem;
+  font-size: 0.8rem;
+}
+
+.natal-preview-label {
+  font-weight: 700;
+}
+
+@media (max-width: 920px) {
+  .astrology-two-col {
+    grid-template-columns: 1fr;
+  }
 }
 </style>

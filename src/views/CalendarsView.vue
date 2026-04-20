@@ -5,15 +5,21 @@
       <p class="subtitle">
         Calendar-focused imposition workflows live here.
       </p>
-      <RouterLink class="primary-button calendars-nav-button" to="/calendars/basic">
-        Basic Calendar
-      </RouterLink>
-      <RouterLink
-        class="primary-button calendars-nav-button"
-        to="/calendars/basic-daily-astrology"
-      >
-        Basic Daily Astrology Calendar
-      </RouterLink>
+      <ul class="calendars-nav-list">
+        <li>
+          <RouterLink class="primary-button calendars-nav-button" to="/calendars/basic">
+            Basic Calendar
+          </RouterLink>
+        </li>
+        <li>
+          <RouterLink
+            class="primary-button calendars-nav-button"
+            to="/calendars/basic-daily-astrology"
+          >
+            Basic Daily Astrology Calendar
+          </RouterLink>
+        </li>
+      </ul>
     </section>
   </main>
 </template>
@@ -23,9 +29,16 @@ import { RouterLink } from "vue-router";
 </script>
 
 <style scoped>
+.calendars-nav-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: grid;
+  gap: 0.75rem;
+}
+
 .calendars-nav-button {
   display: inline-flex;
-  margin-top: 0.75rem;
   text-decoration: none;
 }
 </style>

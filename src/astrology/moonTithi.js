@@ -97,6 +97,8 @@ async function fetchChart(apiBaseUrl, utcDate, coords) {
 
   return {
     tithi: calculateTithi(moon.longitude, sun.longitude),
+    sunSign: sun.zodiacSignName || "",
+    moonSign: moon.zodiacSignName || "",
   };
 }
 
@@ -142,26 +144,28 @@ export async function buildMoonTithisForDateRange(
         0,
         timeZone || "UTC",
       );
-      samples.push({ dateKey, utc });
+      samples.push({ dateKey, utc, hour });
     }
   }
 
   const dayTithiMap = {};
   const dayTithiHourCounts = {};
+  const daySunMoonByDateKey = {};
   keys.forEach((dateKey) => {
     dayTithiMap[dateKey] = [];
     dayTithiHourCounts[dateKey] = {};
+    daySunMoonByDateKey[dateKey] = null;
   });
 
   for (let start = 0; start < samples.length; start += batchSize) {
     const batch = samples.slice(start, start + batchSize);
-    const fetched = await Promise.all(
+      const fetched = await Promise.all(
       batch.map(async (sample) => {
         try {
           const result = await fetchChart(apiBaseUrl, sample.utc, coords);
-          return { ...sample, tithi: result.tithi };
+          return { ...sample, ...result };
         } catch {
-          return { ...sample, tithi: null };
+          return { ...sample, tithi: null, sunSign: "", moonSign: "" };
         }
       }),
     );
@@ -175,6 +179,12 @@ export async function buildMoonTithisForDateRange(
       dayTithiMap[item.dateKey] = existing;
       dayTithiHourCounts[item.dateKey][item.tithi] =
         (dayTithiHourCounts[item.dateKey][item.tithi] ?? 0) + hourStep;
+      if (item.hour === 12 && item.sunSign && item.moonSign) {
+        daySunMoonByDateKey[item.dateKey] = {
+          sunSign: item.sunSign,
+          moonSign: item.moonSign,
+        };
+      }
     });
   }
 
@@ -194,6 +204,7 @@ export async function buildMoonTithisForDateRange(
       primaryTithi,
       tithiNumbers: sequence,
       hourCounts,
+      sunMoon: daySunMoonByDateKey[dateKey],
     };
   });
 

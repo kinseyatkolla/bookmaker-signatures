@@ -64,11 +64,11 @@ export const getZodiacUnicodeFallback = () => ({
 });
 
 const ASPECT_PHYSIS_KEYS = {
-  conjunct: "☌",
-  opposition: "☍",
-  trine: "△",
-  square: "□",
-  sextile: "✶",
+  conjunct: "1",
+  opposition: "2",
+  trine: "3",
+  square: "4",
+  sextile: "5",
 };
 
 export function getAspectPhysisKey(aspectName) {
