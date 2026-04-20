@@ -30,6 +30,7 @@ function updateField(key, value) {
           <input
             :checked="form.signatureCalcMode === 'sheets-fixed'"
             type="radio"
+            name="imposition-signature-calc-mode"
             value="sheets-fixed"
             @change="updateField('signatureCalcMode', 'sheets-fixed')"
           />
@@ -39,6 +40,7 @@ function updateField(key, value) {
           <input
             :checked="form.signatureCalcMode === 'signatures-fixed'"
             type="radio"
+            name="imposition-signature-calc-mode"
             value="signatures-fixed"
             @change="updateField('signatureCalcMode', 'signatures-fixed')"
           />
@@ -55,6 +57,7 @@ function updateField(key, value) {
           <input
             :value="form.pageWidth"
             type="number"
+            name="imposition-page-width"
             min="0.1"
             step="0.1"
             @input="
@@ -70,6 +73,7 @@ function updateField(key, value) {
           <input
             :value="form.pageHeight"
             type="number"
+            name="imposition-page-height"
             min="0.1"
             step="0.1"
             @input="
@@ -89,6 +93,7 @@ function updateField(key, value) {
           <input
             :value="form.sheetsPerSignature"
             type="number"
+            name="imposition-sheets-per-signature"
             min="1"
             step="1"
             :disabled="form.signatureCalcMode === 'signatures-fixed'"
@@ -103,6 +108,7 @@ function updateField(key, value) {
           <input
             :value="form.numberOfSignatures"
             type="number"
+            name="imposition-number-of-signatures"
             min="1"
             step="1"
             :disabled="form.signatureCalcMode === 'sheets-fixed'"
@@ -122,6 +128,7 @@ function updateField(key, value) {
           <input
             :value="form.outputWidth"
             type="number"
+            name="imposition-output-width"
             min="0.1"
             step="0.1"
             @input="
@@ -137,6 +144,7 @@ function updateField(key, value) {
           <input
             :value="form.outputHeight"
             type="number"
+            name="imposition-output-height"
             min="0.1"
             step="0.1"
             @input="
@@ -158,6 +166,7 @@ function updateField(key, value) {
           <input
             :value="form.verticalGap"
             type="number"
+            name="imposition-vertical-gap"
             min="0"
             step="0.01"
             @input="
@@ -173,6 +182,7 @@ function updateField(key, value) {
           <input
             :value="form.horizontalGap"
             type="number"
+            name="imposition-horizontal-gap"
             min="0"
             step="0.01"
             @input="
@@ -191,6 +201,7 @@ function updateField(key, value) {
             id="show-crop-marks"
             :checked="form.showCropMarks"
             type="checkbox"
+            name="imposition-show-crop-marks"
             @change="updateField('showCropMarks', $event.target.checked)"
           />
           <span>Show crop marks</span>
@@ -200,6 +211,7 @@ function updateField(key, value) {
           <input
             :value="form.cropMarkOffset"
             type="number"
+            name="imposition-crop-mark-offset"
             min="0.01"
             step="0.01"
             :disabled="!form.showCropMarks"
@@ -216,6 +228,7 @@ function updateField(key, value) {
           <input
             :value="form.cropMarkLength"
             type="number"
+            name="imposition-crop-mark-length"
             min="0.01"
             step="0.01"
             :disabled="!form.showCropMarks"
@@ -234,6 +247,7 @@ function updateField(key, value) {
           <input
             :value="form.numberOfPages"
             type="number"
+            name="imposition-number-of-pages"
             min="0"
             step="1"
             :disabled="summary.uploadedPageCount > 0"
@@ -287,6 +301,7 @@ function updateField(key, value) {
               <input
                 :checked="form.outputFoldAxis === 'vertical'"
                 type="radio"
+                name="imposition-output-fold-axis"
                 value="vertical"
                 @change="updateField('outputFoldAxis', 'vertical')"
               />
@@ -296,6 +311,7 @@ function updateField(key, value) {
               <input
                 :checked="form.outputFoldAxis === 'horizontal'"
                 type="radio"
+                name="imposition-output-fold-axis"
                 value="horizontal"
                 @change="updateField('outputFoldAxis', 'horizontal')"
               />
