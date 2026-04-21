@@ -1662,6 +1662,8 @@ function toDateInputValue(date) {
             >
               <div class="calendar-cover-body">
                 <ProgressArcs
+                  :key="`progress-arcs-${startDate}-${endDate}`"
+                  size="cover"
                   :start-date="startDate"
                   :end-date="endDate"
                   :api-base-url="astrologyContext.apiBaseUrl"
@@ -2024,10 +2026,13 @@ function toDateInputValue(date) {
 
 .calendar-cover-title {
   margin: 0;
-  font-size: clamp(1.25rem, 3.6vw, 2.1rem);
-  font-weight: 700;
-  letter-spacing: 0.06em;
-  line-height: 1.2;
+  font-family: var(--font-saira);
+  font-size: clamp(0.72rem, 2.2vw, 1rem);
+  font-weight: 800;
+  letter-spacing: 0.08em;
+  line-height: 1.15;
+  color: #1a1d24;
+  white-space: pre-line;
 }
 
 .calendar-cover-footer {

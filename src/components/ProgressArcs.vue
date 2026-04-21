@@ -2,16 +2,17 @@
 /**
  * Range graphic for calendar covers — same planetary longitude as correspondences-app lines mode:
  *
- * 1. Two `POST …/astrology/chart` requests (correspondences-app backend): one instant at local noon
- *    on the calendar range **start** date, one at local noon on the **end** date (see
- *    `utcNoonForDateKeyInTimeZone` + panel location / time zone).
+ * 1. Several `POST …/astrology/chart` requests (correspondences-app backend): local noon on evenly
+ *    spaced dates from range **start** through **end** (see `utcNoonForDateKeyInTimeZone` + panel
+ *    location / time zone; sample count capped).
  * 2. For each planet, read absolute tropical longitude in 0–360° (same field order as
  *    `absoluteTropicalLongitudeDeg` in `tropicalLongitude.js`, aligned with
  *    `ephemerisChartData.ts` / `astrology.js` chart payloads).
- * 3. Arc = circle segment between start and end longitude (sampled path). Most planets use the
- *    **short** rim arc (`shortestLongitudeDeltaDeg`). The **Moon** can move >180° in a month, so
- *    we pick the long or short sweep that fits a span-based motion cap (otherwise the Moon stroke
- *    would highlight the wrong short complement instead of most of a month of travel).
+ * 3. Arcs: we fetch **several** noon charts along the range. Most planets: sum **short** steps
+ *    between samples. **Moon:** sum **prograde** rim steps (shortest arc is wrong when a step
+ *    exceeds ~180°). Long spans: Moon sweep is **capped** at ~one turn so the stroke does not
+ *    loop the rim many times. If net motion is ~≥360° but start≈end on the rim, we draw one clean
+ *    **360°** ring. Two samples only: Moon uses `longitudeDeltaForArc` (also capped).
  *
  * Layout: 0° Aries at left (9 o’clock); rim is **flipped vertically** (reflection across the
  * horizontal midline through the center) so Cancer sits toward the bottom and Capricorn toward
@@ -39,6 +40,8 @@ const props = defineProps({
   latitude: { type: [String, Number], default: "" },
   longitude: { type: [String, Number], default: "" },
   timeZone: { type: String, default: "UTC" },
+  /** `"cover"` = larger footprint for weekly calendar front cover. */
+  size: { type: String, default: "" },
 });
 
 /** Innermost → outermost; shared stroke weight for all planet arcs. */
@@ -77,19 +80,107 @@ const zodiacPhysisByName = getZodiacKeysFromNames();
 const zodiacUnicodeByName = getZodiacUnicodeFallback();
 
 const loadError = ref("");
-const startLongitudes = ref(null);
-const endLongitudes = ref(null);
-/** Calendar span in days (start noon → end noon); used for Moon arc disambiguation. */
+/** Chronological noon chart rows (each: planetKey → λ°). Built from several samples along the range. */
+const chartSamples = ref([]);
+/** Calendar span in days (start noon → end noon); used for two-point Moon heuristic. */
 const spanDays = ref(1);
 const isLoading = ref(false);
 
 const MOON_DEG_PER_DAY_CAP = 16;
+const MAX_CHART_SAMPLES = 12;
+/** Target spacing for extra samples (~every 2.5d) so the Moon rarely jumps >180° between steps. */
+const SAMPLE_SPACING_DAYS = 2.5;
+const FULL_LAP_CLOSURE_TOL_DEG = 14;
+/**
+ * Moon never retrogrades; long spans + coarse samples can move >180° between points — shortest-arc
+ * steps then point the wrong way and `describeRingArc` retraces the rim many times. Cap sweep.
+ */
+const MOON_MAX_DISPLAY_SWEEP_DEG = 360.5;
 
 /**
- * Signed longitude change for the visible arc. Moon: choose between +forward [0,360) and
- * backward = forward−360 using whichever has |Δ| ≤ span×cap when possible, else prefer **larger**
- * |Δ| among feasible (so a ~27-day span draws ~360° of Moon, not the ~30° short complement).
- * Other bodies: always shortest rim arc.
+ * Positive 0…360° rim step from start to end in the prograde (zodiac-increasing) sense.
+ * Use for the Moon between chart samples when spacing is < ~27d so motion does not lap twice.
+ */
+function progradeRimDeltaDeg(startDeg, endDeg) {
+  const s = normalizeEclipticLongitudeDeg(startDeg);
+  const e = normalizeEclipticLongitudeDeg(endDeg);
+  if (s === null || e === null) return 0;
+  return ((e - s + 360) % 360 + 360) % 360;
+}
+
+function cumulativeMoonProgradeSeries(longitudes) {
+  let total = 0;
+  for (let i = 0; i < longitudes.length - 1; i += 1) {
+    total += progradeRimDeltaDeg(longitudes[i], longitudes[i + 1]);
+  }
+  return total;
+}
+
+/**
+ * UTC instants (noon in location zone) from range start through end, inclusive, for chart sampling.
+ */
+function buildSampleUtcInstants(startUtc, endUtc) {
+  const ms0 = startUtc.getTime();
+  const ms1 = endUtc.getTime();
+  const spanMs = ms1 - ms0;
+  if (spanMs <= 0) {
+    return [startUtc, endUtc];
+  }
+  const spanDays = spanMs / 86400000;
+  const n = Math.min(
+    MAX_CHART_SAMPLES,
+    Math.max(2, Math.ceil(spanDays / SAMPLE_SPACING_DAYS) + 1),
+  );
+  const out = [];
+  for (let i = 0; i < n; i += 1) {
+    out.push(new Date(ms0 + (spanMs * i) / (n - 1)));
+  }
+  return out;
+}
+
+function cumulativeLongitudeDeltaSeries(longitudes) {
+  let total = 0;
+  for (let i = 0; i < longitudes.length - 1; i += 1) {
+    total += shortestLongitudeDeltaDeg(longitudes[i], longitudes[i + 1]);
+  }
+  return total;
+}
+
+/**
+ * Signed Δλ for the drawn arc. Multi-sample: sum of shortest steps (handles laps). If that sum
+ * completes ~≥360° but first/last longitudes almost match, use one **360°** stroke (clean ring).
+ * Two samples only: Moon uses `longitudeDeltaForArc`, others use shortest.
+ */
+function displayArcDeltaForPlanet(planetKey, longitudes, span) {
+  const n = longitudes?.length ?? 0;
+  if (n < 2) return 0;
+  if (n === 2) {
+    return longitudeDeltaForArc(planetKey, longitudes[0], longitudes[1], span);
+  }
+
+  if (planetKey === "moon") {
+    const moonCum = cumulativeMoonProgradeSeries(longitudes);
+    return Math.min(moonCum, MOON_MAX_DISPLAY_SWEEP_DEG);
+  }
+
+  const cum = cumulativeLongitudeDeltaSeries(longitudes);
+  const closure = Math.abs(
+    shortestLongitudeDeltaDeg(longitudes[0], longitudes[n - 1]),
+  );
+
+  if (
+    Math.abs(cum) >= 360 - FULL_LAP_CLOSURE_TOL_DEG &&
+    closure < FULL_LAP_CLOSURE_TOL_DEG
+  ) {
+    return Math.sign(cum || 1) * 360;
+  }
+
+  return cum;
+}
+
+/**
+ * Signed longitude change for the visible arc (two samples only). Moon: forward/backward cap.
+ * Other bodies: shortest rim arc.
  */
 function longitudeDeltaForArc(planetKey, s0, s1, span) {
   const shortest = shortestLongitudeDeltaDeg(s0, s1);
@@ -104,13 +195,17 @@ function longitudeDeltaForArc(planetKey, s0, s1, span) {
   const candidates = [forward, backward].filter(
     (d) => Math.abs(d) > 1e-9 && Math.abs(d) <= cap,
   );
+  let chosen;
   if (candidates.length === 0) {
-    return shortest;
+    chosen = shortest;
+  } else {
+    chosen = candidates.reduce((best, d) =>
+      Math.abs(d) > Math.abs(best) ? d : best,
+      candidates[0],
+    );
   }
-  return candidates.reduce((best, d) =>
-    Math.abs(d) > Math.abs(best) ? d : best,
-  candidates[0],
-  );
+  const sign = chosen >= 0 ? 1 : -1;
+  return sign * Math.min(Math.abs(chosen), MOON_MAX_DISPLAY_SWEEP_DEG);
 }
 
 function parseCoords() {
@@ -138,24 +233,24 @@ function lngToPoint(r, lngDeg) {
 
 /**
  * Polyline along the circle in longitude space (matches `lngToPoint` exactly).
+ * @param delta signed degrees from startLng along the rim
  */
-function describeRingArc(r, startLng, endLng, planetKey) {
+function describeRingArc(r, startLng, delta) {
   const s0 = normalizeEclipticLongitudeDeg(startLng);
-  const s1 = normalizeEclipticLongitudeDeg(endLng);
-  if (s0 === null || s1 === null) return "";
+  if (s0 === null) return "";
 
-  let delta = longitudeDeltaForArc(planetKey, s0, s1, spanDays.value);
-  if (Math.abs(delta) < 1e-6) {
-    delta = delta >= 0 ? 0.06 : -0.06;
+  let useDelta = delta;
+  if (Math.abs(useDelta) < 1e-6) {
+    useDelta = useDelta >= 0 ? 0.06 : -0.06;
   }
 
   const segs = Math.max(
     12,
-    Math.min(96, Math.ceil(Math.abs(delta) / 1.5)),
+    Math.min(96, Math.ceil(Math.abs(useDelta) / 1.5)),
   );
   const parts = [];
   for (let i = 0; i <= segs; i += 1) {
-    const lng = s0 + (delta * i) / segs;
+    const lng = s0 + (useDelta * i) / segs;
     const p = lngToPoint(r, lng);
     parts.push(
       i === 0
@@ -215,8 +310,7 @@ async function fetchChartUtc(utcDate, coords) {
 
 async function loadPositions() {
   loadError.value = "";
-  startLongitudes.value = null;
-  endLongitudes.value = null;
+  chartSamples.value = [];
 
   const coords = parseCoords();
   if (!props.startDate || !props.endDate || !coords) {
@@ -235,31 +329,31 @@ async function loadPositions() {
     1 / 24,
   );
 
+  const instants = buildSampleUtcInstants(startUtc, endUtc);
+
   isLoading.value = true;
   try {
-    const [startMap, endMap] = await Promise.all([
-      fetchChartUtc(startUtc, coords),
-      fetchChartUtc(endUtc, coords),
-    ]);
-    startLongitudes.value = startMap;
-    endLongitudes.value = endMap;
+    const maps = await Promise.all(
+      instants.map((utc) => fetchChartUtc(utc, coords)),
+    );
+    chartSamples.value = maps;
   } catch (err) {
     loadError.value =
       err instanceof Error ? err.message : "Could not load planet positions.";
+    chartSamples.value = [];
   } finally {
     isLoading.value = false;
   }
 }
 
+/** Any change to calendar range or chart inputs re-fetches start/end noon positions. */
+const chartInputsKey = computed(
+  () =>
+    `${props.startDate}|${props.endDate}|${props.timeZone}|${String(props.latitude)}|${String(props.longitude)}|${props.apiBaseUrl}`,
+);
+
 watch(
-  () => [
-    props.startDate,
-    props.endDate,
-    props.apiBaseUrl,
-    props.latitude,
-    props.longitude,
-    props.timeZone,
-  ],
+  chartInputsKey,
   () => {
     loadPositions();
   },
@@ -292,13 +386,35 @@ const zodiacMarks = computed(() =>
   }),
 );
 
+function longitudesForPlanet(samples, planetKey) {
+  return samples.map((m) => m[planetKey]).filter((x) => Number.isFinite(x));
+}
+
 const arcRings = computed(() => {
-  const a = startLongitudes.value;
-  const b = endLongitudes.value;
+  const samples = chartSamples.value;
+  if (!samples?.length) {
+    return PLANET_STACK.map((row, i) => ({
+      key: row.key,
+      r: R0 + i * R_STEP,
+      stroke: row.stroke,
+      strokeWidth: row.arcStroke,
+      d: "",
+    }));
+  }
+
   return PLANET_STACK.map((row, i) => {
     const r = R0 + i * R_STEP;
+    const series = longitudesForPlanet(samples, row.key);
+    const delta = displayArcDeltaForPlanet(
+      row.key,
+      series,
+      spanDays.value,
+    );
+    const startLng = series[0];
     const d =
-      a && b ? describeRingArc(r, a[row.key], b[row.key], row.key) : "";
+      typeof startLng === "number" && Number.isFinite(startLng)
+        ? describeRingArc(r, startLng, delta)
+        : "";
     return {
       key: row.key,
       r,
@@ -310,9 +426,8 @@ const arcRings = computed(() => {
 });
 
 const svgTitle = computed(() => {
-  const a = startLongitudes.value;
-  const b = endLongitudes.value;
-  if (!a || !b) {
+  const samples = chartSamples.value;
+  if (!samples?.length) {
     return "Planet arcs: tropical longitude from calendar range start to end";
   }
   return "Tropical longitude arcs from range start to end (noon, location time zone); 0° Aries at left";
@@ -320,7 +435,13 @@ const svgTitle = computed(() => {
 </script>
 
 <template>
-  <div class="progress-arcs" :class="{ 'progress-arcs--loading': isLoading }">
+  <div
+    class="progress-arcs"
+    :class="{
+      'progress-arcs--loading': isLoading,
+      'progress-arcs--cover': size === 'cover',
+    }"
+  >
     <svg
       class="progress-arcs-svg"
       :viewBox="VIEWBOX_STR"
@@ -393,6 +514,10 @@ const svgTitle = computed(() => {
   opacity: 0.55;
 }
 
+.progress-arcs--cover {
+  width: min(82vw, 19.5rem);
+}
+
 .progress-arcs-svg {
   width: 100%;
   height: 100%;
@@ -421,6 +546,10 @@ const svgTitle = computed(() => {
 @media (min-width: 900px) {
   .progress-arcs {
     width: min(36vw, 12.5rem);
+  }
+
+  .progress-arcs--cover {
+    width: min(62vw, 22rem);
   }
 }
 </style>
