@@ -1118,6 +1118,7 @@ async function rasterizeCalendarPages() {
   const sheets = weeklyRasterPagesForView.value;
   rasterizeProgressTotal.value = sheets.length;
   rasterizeProgressActive.value = true;
+  await nextTick();
 
   try {
     for (let pageIndex = 0; pageIndex < sheets.length; pageIndex += 1) {

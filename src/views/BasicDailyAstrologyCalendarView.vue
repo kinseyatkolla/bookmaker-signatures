@@ -959,6 +959,7 @@ async function rasterizeCalendarPages() {
   rasterizeProgressCurrent.value = 0;
   rasterizeProgressTotal.value = calendarRasterPages.value.length;
   rasterizeProgressActive.value = true;
+  await nextTick();
 
   try {
     for (

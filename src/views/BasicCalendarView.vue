@@ -791,6 +791,7 @@ async function rasterizeCalendarPages() {
   rasterizeProgressCurrent.value = 0;
   rasterizeProgressTotal.value = calendarPages.value.length;
   rasterizeProgressActive.value = true;
+  await nextTick();
 
   try {
     for (
@@ -1138,7 +1139,11 @@ function toDateInputValue(date) {
 }
 
 .calendar-day-card--rasterizing {
-  border-color: transparent;
+  border: 0 !important;
+  border-radius: 0;
+  outline: none;
+  box-shadow: none;
+  overflow: hidden;
 }
 
 .calendar-day-number {
