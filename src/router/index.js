@@ -6,6 +6,7 @@ import CalendarsView from "../views/CalendarsView.vue";
 import BasicCalendarView from "../views/BasicCalendarView.vue";
 import BasicDailyAstrologyCalendarView from "../views/BasicDailyAstrologyCalendarView.vue";
 import BasicWeeklyAstrologyCalendarView from "../views/BasicWeeklyAstrologyCalendarView.vue";
+import DailyMoonCalendarView from "../views/DailyMoonCalendarView.vue";
 
 const routes = [
   { path: "/", name: "signatures", component: SignaturesView },
@@ -20,6 +21,11 @@ const routes = [
     path: "/calendars/basic-weekly-astrology",
     name: "calendars-basic-weekly-astrology",
     component: BasicWeeklyAstrologyCalendarView,
+  },
+  {
+    path: "/calendars/daily-moon",
+    name: "calendars-daily-moon",
+    component: DailyMoonCalendarView,
   },
   { path: "/folded-zine-1", name: "folded-zine-1", component: FoldedZine1View },
   { path: "/folded-zine-2", name: "folded-zine-2", component: FoldedZine2View },

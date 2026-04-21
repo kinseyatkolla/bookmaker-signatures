@@ -36,6 +36,10 @@ const props = defineProps({
     type: String,
     default: "",
   },
+  moonMode: {
+    type: Boolean,
+    default: false,
+  },
 });
 
 const emit = defineEmits([
@@ -347,8 +351,20 @@ function normalizeEvent(event, fallbackId) {
   const timestamp = formatEventTimestamp(when);
 
   const buildAspectMainLabel = () => {
-    const p1 = formatPlanetLabel(event.planet1);
-    const p2Raw = event.planet2;
+    const moonMode = props.moonMode === true;
+    const isMoonTransitAspect =
+      moonMode &&
+      eventType === "aspect" &&
+      !event.isNatalTransit &&
+      (String(event.planet1 || "").toLowerCase() === "moon" ||
+        String(event.planet2 || "").toLowerCase() === "moon");
+    const p1Raw = isMoonTransitAspect ? "moon" : event.planet1;
+    const p2Raw = isMoonTransitAspect
+      ? String(event.planet1 || "").toLowerCase() === "moon"
+        ? event.planet2
+        : event.planet1
+      : event.planet2;
+    const p1 = formatPlanetLabel(p1Raw);
     const aspect = formatAspectNameForDisplay(event.aspectName);
     if (event.isNatalTransit) {
       const p2 = formatPlanetLabel(p2Raw);
@@ -431,8 +447,33 @@ function normalizeEvent(event, fallbackId) {
     if (row) glyphRows.push(row);
   }
   if (eventType === "aspect" || eventType === "natal transit") {
-    const p1 = event.planet1Position;
-    const p2 = event.planet2Position;
+    const moonMode = props.moonMode === true;
+    const moonFirstForTransitAspect =
+      moonMode &&
+      eventType === "aspect" &&
+      !event.isNatalTransit &&
+      (String(event.planet1 || "").toLowerCase() === "moon" ||
+        String(event.planet2 || "").toLowerCase() === "moon");
+    const baseP1 = event.planet1Position;
+    const baseP2 = event.planet2Position;
+    const p1 = moonFirstForTransitAspect
+      ? String(event.planet1 || "").toLowerCase() === "moon"
+        ? baseP1
+        : baseP2
+      : baseP1;
+    const p2 = moonFirstForTransitAspect
+      ? String(event.planet1 || "").toLowerCase() === "moon"
+        ? baseP2
+        : baseP1
+      : baseP2;
+    const p1Name = moonFirstForTransitAspect
+      ? "moon"
+      : event.planet1;
+    const p2Name = moonFirstForTransitAspect
+      ? String(event.planet1 || "").toLowerCase() === "moon"
+        ? event.planet2
+        : event.planet1
+      : event.planet2;
     const aspectName = String(event.aspectName || "").toLowerCase();
     if (aspectName === "conjunct") {
       const sharedDegree = getSharedAspectDegree(
@@ -441,7 +482,7 @@ function normalizeEvent(event, fallbackId) {
       );
       const signName = p1?.zodiacSignName || p2?.zodiacSignName;
       if (signName) {
-        const planetKey = planetGlyphKey(event.planet1);
+        const planetKey = planetGlyphKey(p1Name);
         const zodiacKey = zodiacGlyphKey(signName);
         glyphRows.push({
           planetKey,
@@ -450,13 +491,13 @@ function normalizeEvent(event, fallbackId) {
           signName,
           elementClass: signElementClass(signName),
           planetUnicode:
-            planetUnicodeFallback[String(event.planet1 || "").toLowerCase()] || "",
+            planetUnicodeFallback[String(p1Name || "").toLowerCase()] || "",
           zodiacUnicode: zodiacUnicodeFallback[signName] || "",
         });
       }
     } else {
-      const row1 = buildGlyphRow({ planetName: event.planet1, position: p1 });
-      const row2 = buildGlyphRow({ planetName: event.planet2, position: p2 });
+      const row1 = buildGlyphRow({ planetName: p1Name, position: p1 });
+      const row2 = buildGlyphRow({ planetName: p2Name, position: p2 });
       if (row1) glyphRows.push(row1);
       if (row2) glyphRows.push(row2);
     }
@@ -664,6 +705,7 @@ function buildRequestBody(year, options = { includeNatalChart: false }) {
     latitude: currentCoords.latitude,
     longitude: currentCoords.longitude,
     sampleInterval: 6,
+    moonMode: props.moonMode === true,
   };
   if (!options.includeNatalChart) return payload;
   const natalChart = buildNatalChartPayload();
@@ -822,7 +864,9 @@ async function loadAstrologyEvents() {
   isLoading.value = true;
   try {
     const includeNatalTransits =
-      hasValidNatalData.value && didFetchBirthChart.value && !!natalChartPreview.value;
+      props.moonMode === true
+        ? false
+        : hasValidNatalData.value && didFetchBirthChart.value && !!natalChartPreview.value;
     const yearPayloads = await Promise.all(
       yearsToFetch.value.map(async (year) => {
         const mundaneResponse = await fetch(

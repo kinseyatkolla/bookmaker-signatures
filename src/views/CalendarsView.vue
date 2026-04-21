@@ -2,12 +2,12 @@
   <main class="page">
     <section class="card">
       <h1>Calendars</h1>
-      <p class="subtitle">
-        Calendar-focused imposition workflows live here.
-      </p>
       <ul class="calendars-nav-list">
         <li>
-          <RouterLink class="primary-button calendars-nav-button" to="/calendars/basic">
+          <RouterLink
+            class="primary-button calendars-nav-button"
+            to="/calendars/basic"
+          >
             Basic Calendar
           </RouterLink>
         </li>
@@ -25,6 +25,14 @@
             to="/calendars/basic-weekly-astrology"
           >
             Basic Weekly Astrology Calendar
+          </RouterLink>
+        </li>
+        <li>
+          <RouterLink
+            class="primary-button calendars-nav-button"
+            to="/calendars/daily-moon"
+          >
+            Daily Moon Calendar
           </RouterLink>
         </li>
       </ul>

@@ -151,10 +151,12 @@ export async function buildMoonTithisForDateRange(
   const dayTithiMap = {};
   const dayTithiHourCounts = {};
   const daySunMoonByDateKey = {};
+  const dayTithiTransitions = {};
   keys.forEach((dateKey) => {
     dayTithiMap[dateKey] = [];
     dayTithiHourCounts[dateKey] = {};
     daySunMoonByDateKey[dateKey] = null;
+    dayTithiTransitions[dateKey] = [];
   });
 
   for (let start = 0; start < samples.length; start += batchSize) {
@@ -173,8 +175,14 @@ export async function buildMoonTithisForDateRange(
     fetched.forEach((item) => {
       if (typeof item.tithi !== "number") return;
       const existing = dayTithiMap[item.dateKey] ?? [];
-      if (existing[existing.length - 1] !== item.tithi) {
+      const previousTithi = existing[existing.length - 1];
+      if (previousTithi !== item.tithi) {
         existing.push(item.tithi);
+        dayTithiTransitions[item.dateKey].push({
+          tithi: item.tithi,
+          hour: item.hour,
+          localTimeLabel: `${String(item.hour).padStart(2, "0")}:00`,
+        });
       }
       dayTithiMap[item.dateKey] = existing;
       dayTithiHourCounts[item.dateKey][item.tithi] =
@@ -205,6 +213,7 @@ export async function buildMoonTithisForDateRange(
       tithiNumbers: sequence,
       hourCounts,
       sunMoon: daySunMoonByDateKey[dateKey],
+      tithiTransitions: dayTithiTransitions[dateKey] ?? [],
     };
   });
 
