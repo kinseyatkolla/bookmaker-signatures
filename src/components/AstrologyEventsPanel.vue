@@ -8,6 +8,7 @@ import {
   getZodiacUnicodeFallback,
 } from "../astrology/physisSymbolMap";
 import { buildMoonTithisForDateRange } from "../astrology/moonTithi";
+import { buildEclipseTypeByDateKey } from "../astrology/eclipseOpale";
 
 const DEFAULT_BIRTH_TIME_ZONE = "America/Chicago";
 const DEFAULT_BIRTH_LOCAL = {
@@ -46,6 +47,7 @@ const emit = defineEmits([
   "update:eventsByDate",
   "update:context",
   "update:tithisByDate",
+  "update:eclipsesByDate",
 ]);
 
 const apiBaseUrl = ref("http://localhost:3000/api");
@@ -57,6 +59,7 @@ const errorMessage = ref("");
 const didAttemptLoad = ref(false);
 const rawEvents = ref([]);
 const tithisByDate = ref({});
+const eclipsesByDate = ref({});
 const didFetchBirthChart = ref(false);
 const natalChartPreview = ref(null);
 const natalChartPreviewError = ref("");
@@ -610,6 +613,14 @@ watch(
 );
 
 watch(
+  eclipsesByDate,
+  (nextValue) => {
+    emit("update:eclipsesByDate", nextValue ?? {});
+  },
+  { immediate: true },
+);
+
+watch(
   astrologyContext,
   (nextValue) => {
     emit("update:context", nextValue);
@@ -852,6 +863,7 @@ async function loadAstrologyEvents() {
   if (yearsToFetch.value.length === 0) {
     rawEvents.value = [];
     tithisByDate.value = {};
+    eclipsesByDate.value = {};
     return;
   }
 
@@ -927,6 +939,17 @@ async function loadAstrologyEvents() {
       }),
     );
     rawEvents.value = yearPayloads.flat();
+    const eclipseMaps = await Promise.all(
+      yearsToFetch.value.map((year) =>
+        buildEclipseTypeByDateKey(year, locationTimeZone.value || "UTC").catch(
+          () => ({}),
+        ),
+      ),
+    );
+    eclipsesByDate.value = eclipseMaps.reduce(
+      (acc, map) => Object.assign(acc, map || {}),
+      {},
+    );
 
     const currentCoords = parseCoordinates(
       form.currentLatitude,
@@ -949,6 +972,7 @@ async function loadAstrologyEvents() {
       error instanceof Error ? error.message : "Failed to fetch astrology events.";
     rawEvents.value = [];
     tithisByDate.value = {};
+    eclipsesByDate.value = {};
   } finally {
     isLoading.value = false;
   }

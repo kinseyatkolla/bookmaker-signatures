@@ -251,7 +251,10 @@ const weeklyRasterSheets = computed(() => {
       const dt = new Date(weekMon);
       dt.setDate(weekMon.getDate() + i);
       dt.setHours(12, 0, 0, 0);
-      if (dt.getTime() < rangeStart.getTime() || dt.getTime() > rangeEnd.getTime()) {
+      if (
+        dt.getTime() < rangeStart.getTime() ||
+        dt.getTime() > rangeEnd.getTime()
+      ) {
         weekDays.push(null);
       } else {
         weekDays.push(buildDayPageData(dt));
@@ -321,7 +324,10 @@ const calendarRasterSheets = computed(() => {
       locationLine,
       natalLine,
     },
-    ...weeklyRasterSheets.value.map((sheet) => ({ ...sheet, kind: "week-sheet" })),
+    ...weeklyRasterSheets.value.map((sheet) => ({
+      ...sheet,
+      kind: "week-sheet",
+    })),
     {
       key: "cover-back",
       kind: "cover-back",
@@ -343,7 +349,10 @@ const requiredPageCount = computed(() => calendarRasterSheets.value.length);
 const numberOfPages = ref(requiredPageCount.value);
 const uploadedPageCount = computed(() => 0);
 const effectivePageCount = computed(() =>
-  Math.max(requiredPageCount.value, Math.floor(Number(numberOfPages.value) || 0)),
+  Math.max(
+    requiredPageCount.value,
+    Math.floor(Number(numberOfPages.value) || 0),
+  ),
 );
 const usingManualPageCount = computed(() => true);
 
@@ -561,7 +570,8 @@ function buildSheetSlot(signatureOffset, relativePageNumber) {
     }
     return null;
   })();
-  const hasSourcePage = absolutePageNumber <= effectivePageCount.value && !!imageFile;
+  const hasSourcePage =
+    absolutePageNumber <= effectivePageCount.value && !!imageFile;
   return {
     relativePageNumber,
     absolutePageNumber,
@@ -1173,9 +1183,13 @@ async function rasterizeCalendarPages() {
           resolve(result);
         }, "image/png");
       });
-      reusableBlankGridFile.value = new File([blankBlob], "calendar-blank-grid.png", {
-        type: "image/png",
-      });
+      reusableBlankGridFile.value = new File(
+        [blankBlob],
+        "calendar-blank-grid.png",
+        {
+          type: "image/png",
+        },
+      );
     }
   } finally {
     rasterizeProgressActive.value = false;
@@ -1208,10 +1222,13 @@ async function generatePdfOutput() {
 
   const paddingCount = blankPagesNeeded.value;
   if (paddingCount > 0) {
-    weeklyPdfPaddingSheets.value = Array.from({ length: paddingCount }, (_, i) => ({
-      key: `pdf-padding-blank-${i}`,
-      kind: "padding-blank-grid",
-    }));
+    weeklyPdfPaddingSheets.value = Array.from(
+      { length: paddingCount },
+      (_, i) => ({
+        key: `pdf-padding-blank-${i}`,
+        kind: "padding-blank-grid",
+      }),
+    );
     await nextTick();
   }
 
@@ -1606,7 +1623,9 @@ function toDateInputValue(date) {
               :class="[
                 'calendar-cover-page',
                 'calendar-cover-page--front',
-                rasterizeProgressActive ? 'calendar-cover-page--rasterizing' : '',
+                rasterizeProgressActive
+                  ? 'calendar-cover-page--rasterizing'
+                  : '',
               ]"
             >
               <p class="calendar-cover-title">{{ sheet.coverTitle }}</p>
@@ -1622,7 +1641,9 @@ function toDateInputValue(date) {
               :class="[
                 'calendar-cover-page',
                 'calendar-cover-page--back',
-                rasterizeProgressActive ? 'calendar-cover-page--rasterizing' : '',
+                rasterizeProgressActive
+                  ? 'calendar-cover-page--rasterizing'
+                  : '',
               ]"
             >
               <div class="calendar-cover-footer">
@@ -1635,7 +1656,11 @@ function toDateInputValue(date) {
             >
               <div class="weekly-blank-page" aria-hidden="true" />
             </div>
-            <div v-else class="weekly-grid" :class="`weekly-grid--${sheet.side}`">
+            <div
+              v-else
+              class="weekly-grid"
+              :class="`weekly-grid--${sheet.side}`"
+            >
               <div
                 v-if="sheet.isTotallyBlank"
                 class="weekly-blank-page"
@@ -1796,11 +1821,13 @@ function toDateInputValue(date) {
                       >
                         <span class="glyph-char">{{
                           dayFooterSunMoonGlyphs(cell.day.key).moon.planetKey ||
-                          dayFooterSunMoonGlyphs(cell.day.key).moon.planetUnicode
+                          dayFooterSunMoonGlyphs(cell.day.key).moon
+                            .planetUnicode
                         }}</span>
                         <span class="glyph-char">{{
                           dayFooterSunMoonGlyphs(cell.day.key).moon.zodiacKey ||
-                          dayFooterSunMoonGlyphs(cell.day.key).moon.zodiacUnicode
+                          dayFooterSunMoonGlyphs(cell.day.key).moon
+                            .zodiacUnicode
                         }}</span>
                       </span>
                     </div>
@@ -1813,13 +1840,17 @@ function toDateInputValue(date) {
                     >
                       <img
                         v-if="
-                          moonIconSrc(dayTithiDetails(cell.day.key).primaryTithi)
+                          moonIconSrc(
+                            dayTithiDetails(cell.day.key).primaryTithi,
+                          )
                         "
                         class="page-moon-icon page-moon-icon--footer"
                         width="14"
                         height="14"
                         :src="
-                          moonIconSrc(dayTithiDetails(cell.day.key).primaryTithi)
+                          moonIconSrc(
+                            dayTithiDetails(cell.day.key).primaryTithi,
+                          )
                         "
                         alt=""
                         :title="`Primary tithi ${dayTithiDetails(cell.day.key).primaryTithi}`"

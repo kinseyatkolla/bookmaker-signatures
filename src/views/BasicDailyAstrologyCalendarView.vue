@@ -91,6 +91,7 @@ const rasterizeProgressTotal = ref(0);
 const rasterizeProgressActive = ref(false);
 const astrologyEventsByDate = ref({});
 const astrologyTithisByDate = ref({});
+const astrologyEclipsesByDate = ref({});
 const astrologyContext = ref({
   locationName: "",
   latitude: "",
@@ -1254,11 +1255,34 @@ function formatTithiSummary(tithiNumber, hourCounts) {
 }
 
 function dayHasEclipse(dateKey) {
+  return eclipseTypeForDay(dateKey) !== "";
+}
+
+function eclipseTypeForDay(dateKey) {
+  const mapped = String(astrologyEclipsesByDate.value?.[dateKey] || "");
+  if (mapped === "solar" || mapped === "lunar" || mapped === "both") {
+    return mapped;
+  }
   const events = astrologyEventsByDate.value?.[dateKey] ?? [];
-  return events.some((event) => {
+  let hasSolar = false;
+  let hasLunar = false;
+  events.forEach((event) => {
     const label = String(event?.mainLabel || "").toLowerCase();
-    return label.includes("solar eclipse") || label.includes("lunar eclipse");
+    if (label.includes("solar eclipse")) hasSolar = true;
+    if (label.includes("lunar eclipse")) hasLunar = true;
   });
+  if (hasSolar && hasLunar) return "both";
+  if (hasSolar) return "solar";
+  if (hasLunar) return "lunar";
+  return "";
+}
+
+function eclipseIndicatorLabel(dateKey) {
+  const eclipseType = eclipseTypeForDay(dateKey);
+  if (eclipseType === "both") return "SOLAR + LUNAR ECLIPSE";
+  if (eclipseType === "solar") return "SOLAR ECLIPSE";
+  if (eclipseType === "lunar") return "LUNAR ECLIPSE";
+  return "";
 }
 
 function signElementClass(signName) {
@@ -1420,6 +1444,16 @@ function dayEventsForDisplay(page) {
   return combined;
 }
 
+function shouldCondenseMoonEventRows(page) {
+  if (!props.isMoonCalendarMode) {
+    return false;
+  }
+  const glyphRowEvents = dayEventsForDisplay(page).filter(
+    (event) => (event?.glyphRows || []).length > 0,
+  );
+  return glyphRowEvents.length >= 4;
+}
+
 function parseTimeLabelToMinutes(timeLabel) {
   const text = String(timeLabel || "")
     .trim()
@@ -1485,6 +1519,10 @@ function onAstrologyContextUpdate(nextContext) {
 
 function onAstrologyTithisByDateUpdate(nextTithisByDate) {
   astrologyTithisByDate.value = nextTithisByDate ?? {};
+}
+
+function onAstrologyEclipsesByDateUpdate(nextEclipsesByDate) {
+  astrologyEclipsesByDate.value = nextEclipsesByDate ?? {};
 }
 
 function onImpositionControlFieldUpdate({ key, value }) {
@@ -1600,6 +1638,7 @@ function toDateInputValue(date) {
         @update:eventsByDate="onAstrologyEventsByDateUpdate"
         @update:context="onAstrologyContextUpdate"
         @update:tithisByDate="onAstrologyTithisByDateUpdate"
+        @update:eclipsesByDate="onAstrologyEclipsesByDateUpdate"
       />
 
       <PdfOutputActions :state="pdfOutputState" :handlers="pdfOutputHandlers" />
@@ -1625,6 +1664,9 @@ function toDateInputValue(date) {
               page.kind === 'day'
                 ? 'calendar-page--day'
                 : 'calendar-page--cover',
+              props.isMoonCalendarMode && page.kind === 'day'
+                ? 'calendar-day-card--moon-mode'
+                : '',
               rasterizeProgressActive ? 'calendar-day-card--rasterizing' : '',
             ]"
           >
@@ -1705,6 +1747,12 @@ function toDateInputValue(date) {
                   alt=""
                   :title="`Primary tithi ${dayTithiDetails(page.key).primaryTithi}`"
                 />
+                <p
+                  v-if="eclipseIndicatorLabel(page.key)"
+                  class="moon-eclipse-indicator"
+                >
+                  {{ eclipseIndicatorLabel(page.key) }}
+                </p>
               </div>
               <header
                 v-if="!props.isMoonCalendarMode"
@@ -1786,7 +1834,9 @@ function toDateInputValue(date) {
                 }"
               >
                 <li
-                  v-if="props.isMoonCalendarMode && dayFooterSunMoonGlyphs(page.key)"
+                  v-if="
+                    props.isMoonCalendarMode && dayFooterSunMoonGlyphs(page.key)
+                  "
                   class="event-block event-block--moon-inline-glyphs"
                 >
                   <div class="moon-inline-glyphs-wrap">
@@ -1804,7 +1854,9 @@ function toDateInputValue(date) {
                     </div>
                     <span
                       class="moon-dignity-inline-glyph"
-                      :class="dayFooterSunMoonGlyphs(page.key).moon.elementClass"
+                      :class="
+                        dayFooterSunMoonGlyphs(page.key).moon.elementClass
+                      "
                     >
                       <span class="glyph-char">{{
                         dayFooterSunMoonGlyphs(page.key).moon.planetKey ||
@@ -1823,7 +1875,10 @@ function toDateInputValue(date) {
                   class="event-block"
                 >
                   <div
-                    v-if="event.glyphRows.length === 2"
+                    v-if="
+                      event.glyphRows.length === 2 &&
+                      !shouldCondenseMoonEventRows(page)
+                    "
                     class="event-glyphs event-glyphs--day-lead event-glyphs--aspect-inline"
                   >
                     <div
@@ -1876,7 +1931,10 @@ function toDateInputValue(date) {
                     </div>
                   </div>
                   <div
-                    v-else-if="event.glyphRows.length"
+                    v-else-if="
+                      event.glyphRows.length &&
+                      !shouldCondenseMoonEventRows(page)
+                    "
                     class="event-glyphs event-glyphs--day-lead"
                   >
                     <div
@@ -1941,7 +1999,10 @@ function toDateInputValue(date) {
               </ul>
               <footer class="page-day-footer">
                 <div
-                  v-if="dayFooterSunMoonGlyphs(page.key) && !props.isMoonCalendarMode"
+                  v-if="
+                    dayFooterSunMoonGlyphs(page.key) &&
+                    !props.isMoonCalendarMode
+                  "
                   class="page-day-footer-glyphs"
                   aria-label="Sun and Moon at local noon"
                   :class="{
@@ -2040,6 +2101,11 @@ function toDateInputValue(date) {
   overflow: visible;
   box-sizing: border-box;
   font-family: Inter, "Avenir Next", Avenir, "Segoe UI", Roboto, sans-serif;
+}
+
+.calendar-day-card--moon-mode {
+  padding-left: 1.05rem;
+  padding-right: 1.05rem;
 }
 
 .calendar-day-card--rasterizing {
@@ -2237,9 +2303,24 @@ function toDateInputValue(date) {
 .moon-focus-wrap {
   width: 100%;
   display: flex;
+  flex-direction: column;
   justify-content: center;
   align-items: center;
   margin-bottom: 0.2rem;
+}
+
+.moon-eclipse-indicator {
+  margin: 0.22rem 0 0;
+  padding: 0.08rem 0.36rem;
+  border: 1px solid #ffb3b3;
+  border-radius: 999px;
+  font-size: 0.5rem;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  line-height: 1.2;
+  color: #c62828;
+  background: #fff2f2;
+  text-transform: uppercase;
 }
 
 .moon-focus-icon {
