@@ -548,6 +548,8 @@ const astrologyContext = computed(() => ({
   timeZone: locationTimeZone.value || "UTC",
   startDate: props.startDate || "",
   endDate: props.endDate || "",
+  birthDateTime: form.birthDateTime || "",
+  birthLocationName: form.birthLocationName || "",
 }));
 
 watch(

@@ -1084,7 +1084,10 @@ function toDateInputValue(date) {
             v-for="page in calendarPages"
             :key="page.key"
             :ref="(el) => setDateCardRef(page.key, el)"
-            class="calendar-day-card"
+            :class="[
+              'calendar-day-card',
+              rasterizeProgressActive ? 'calendar-day-card--rasterizing' : '',
+            ]"
           >
             <p class="calendar-day-number">{{ page.dayNumber }}</p>
             <p class="calendar-day-label">{{ page.fullDateLabel }}</p>
@@ -1132,6 +1135,10 @@ function toDateInputValue(date) {
   flex-direction: column;
   justify-content: flex-start;
   overflow: hidden;
+}
+
+.calendar-day-card--rasterizing {
+  border-color: transparent;
 }
 
 .calendar-day-number {

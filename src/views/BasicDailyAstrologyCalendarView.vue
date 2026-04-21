@@ -57,6 +57,8 @@ const astrologyContext = ref({
   latitude: "",
   longitude: "",
   timeZone: "UTC",
+  birthDateTime: "",
+  birthLocationName: "",
   startDate: "",
   endDate: "",
 });
@@ -71,7 +73,7 @@ const pagesPerSignature = computed(
   () => Math.max(1, sheetsPerSignature.value) * pagesPerSheet,
 );
 
-const calendarPages = computed(() => {
+const dayCalendarPages = computed(() => {
   const start = parseDateInput(startDate.value);
   const end = parseDateInput(endDate.value);
 
@@ -107,10 +109,131 @@ const calendarPages = computed(() => {
   return pages;
 });
 
-const uploadedPageCount = computed(() => calendarPages.value.length);
-const effectivePageCount = computed(() => calendarPages.value.length);
-const numberOfPages = computed(() => calendarPages.value.length);
-const usingManualPageCount = computed(() => false);
+function monthShortUpper(date) {
+  return date.toLocaleString("en-US", { month: "short" }).toUpperCase();
+}
+
+function formatCoverDate(date) {
+  const dd = String(date.getDate()).padStart(2, "0");
+  return `${dd} ${monthShortUpper(date)} ${date.getFullYear()}`;
+}
+
+function isWholeMonthRange(start, end) {
+  if (start.getDate() !== 1) return false;
+  const lastDay = new Date(end.getFullYear(), end.getMonth() + 1, 0).getDate();
+  return end.getDate() === lastDay;
+}
+
+function formatTimeframeCoverTitle(start, end) {
+  if (
+    start.getFullYear() === end.getFullYear() &&
+    start.getMonth() === 0 &&
+    start.getDate() === 1 &&
+    end.getMonth() === 11 &&
+    end.getDate() === 31
+  ) {
+    return String(start.getFullYear());
+  }
+
+  if (isWholeMonthRange(start, end)) {
+    const startMonth = `${monthShortUpper(start)} ${start.getFullYear()}`;
+    const endMonth = `${monthShortUpper(end)} ${end.getFullYear()}`;
+    return startMonth === endMonth ? startMonth : `${startMonth} - ${endMonth}`;
+  }
+
+  return `${formatCoverDate(start)} - ${formatCoverDate(end)}`;
+}
+
+function formatCoverLocationName(rawName) {
+  const parts = String(rawName || "")
+    .split(",")
+    .map((part) => part.trim())
+    .filter(Boolean);
+  if (parts.length >= 3) {
+    return `${parts[0]}, ${parts[parts.length - 2]}`;
+  }
+  return parts[0] || "Location not set";
+}
+
+function formatNatalCoverLine(dateTimeRaw, locationRaw) {
+  const parsed = new Date(dateTimeRaw);
+  if (Number.isNaN(parsed.getTime())) {
+    return "";
+  }
+  const when = parsed
+    .toLocaleString("en-US", {
+      month: "long",
+      day: "numeric",
+      year: "numeric",
+      hour: "numeric",
+      minute: "2-digit",
+      hour12: true,
+    })
+    .replace(" AM", "am")
+    .replace(" PM", "pm");
+  return `Natal Transits for ${when}, ${formatCoverLocationName(locationRaw)}`;
+}
+
+const hasNatalTransits = computed(() =>
+  Object.values(astrologyEventsByDate.value || {}).some((events) =>
+    (events || []).some((event) => event?.eventType === "natal transit"),
+  ),
+);
+
+const calendarRasterPages = computed(() => {
+  const start = parseDateInput(startDate.value);
+  const end = parseDateInput(endDate.value);
+  if (!start || !end || start.getTime() > end.getTime()) {
+    return [];
+  }
+
+  const locationLine = `Current location: ${formatCoverLocationName(
+    astrologyContext.value.locationName,
+  )}`;
+  const natalLine = hasNatalTransits.value
+    ? formatNatalCoverLine(
+        astrologyContext.value.birthDateTime,
+        astrologyContext.value.birthLocationName,
+      )
+    : "";
+
+  return [
+    {
+      key: "cover-front",
+      kind: "cover-front",
+      coverTitle: formatTimeframeCoverTitle(start, end),
+      locationLine,
+      natalLine,
+    },
+    ...dayCalendarPages.value.map((page) => ({ ...page, kind: "day" })),
+    {
+      key: "cover-back",
+      kind: "cover-back",
+      imprintText: "GARLAND CALENDARS",
+    },
+  ];
+});
+
+const requiredPageCount = computed(() => calendarRasterPages.value.length);
+const numberOfPages = ref(requiredPageCount.value);
+const uploadedPageCount = computed(() => 0);
+const effectivePageCount = computed(() =>
+  Math.max(
+    requiredPageCount.value,
+    Math.floor(Number(numberOfPages.value) || 0),
+  ),
+);
+const usingManualPageCount = computed(() => true);
+
+watch(
+  requiredPageCount,
+  (nextRequired) => {
+    if ((Number(numberOfPages.value) || 0) < nextRequired) {
+      numberOfPages.value = nextRequired;
+    }
+  },
+  { immediate: true },
+);
 
 watch(
   [
@@ -275,7 +398,17 @@ onUnmounted(() => {
 
 function buildSheetSlot(signatureOffset, relativePageNumber) {
   const absolutePageNumber = signatureOffset + relativePageNumber;
-  const imageFile = rasterizedPageFiles.value[absolutePageNumber - 1] ?? null;
+  const required = requiredPageCount.value;
+  const hasCovers = required >= 2;
+  const backCoverSourceIndex = required - 1;
+  let sourceIndex = absolutePageNumber - 1;
+  if (hasCovers && absolutePageNumber === effectivePageCount.value) {
+    sourceIndex = backCoverSourceIndex;
+  } else if (hasCovers && absolutePageNumber >= required) {
+    sourceIndex = -1;
+  }
+  const imageFile =
+    sourceIndex >= 0 ? (rasterizedPageFiles.value[sourceIndex] ?? null) : null;
   const hasSourcePage = absolutePageNumber <= effectivePageCount.value;
   return {
     relativePageNumber,
@@ -439,7 +572,13 @@ function onNumberOfSignaturesInput(event) {
   );
 }
 
-function onNumberOfPagesInput() {}
+function onNumberOfPagesInput(event) {
+  const next = Math.max(
+    requiredPageCount.value,
+    Math.floor(Number(event?.target?.value) || requiredPageCount.value),
+  );
+  numberOfPages.value = next;
+}
 
 function toPoints(inches) {
   return inches * 72;
@@ -818,16 +957,16 @@ async function rasterizeCalendarPages() {
   await nextTick();
   const files = [];
   rasterizeProgressCurrent.value = 0;
-  rasterizeProgressTotal.value = calendarPages.value.length;
+  rasterizeProgressTotal.value = calendarRasterPages.value.length;
   rasterizeProgressActive.value = true;
 
   try {
     for (
       let pageIndex = 0;
-      pageIndex < calendarPages.value.length;
+      pageIndex < calendarRasterPages.value.length;
       pageIndex += 1
     ) {
-      const pageData = calendarPages.value[pageIndex];
+      const pageData = calendarRasterPages.value[pageIndex];
       const card = dateCardRefs.value[pageData.key];
       if (!card) {
         throw new Error("Calendar page card is not ready for rasterization.");
@@ -874,7 +1013,7 @@ async function generatePdfOutput() {
     return;
   }
 
-  if (calendarPages.value.length === 0) {
+  if (calendarRasterPages.value.length === 0) {
     pdfError.value = "Choose a valid date range to create calendar pages.";
     return;
   }
@@ -1270,195 +1409,238 @@ function toDateInputValue(date) {
         </p>
         <div class="calendar-pages-grid" :style="calendarPagesPreviewStyle">
           <article
-            v-for="page in calendarPages"
+            v-for="page in calendarRasterPages"
             :key="page.key"
             :ref="(el) => setDateCardRef(page.key, el)"
-            class="calendar-day-card calendar-page--day"
+            :class="[
+              'calendar-day-card',
+              page.kind === 'day'
+                ? 'calendar-page--day'
+                : 'calendar-page--cover',
+              rasterizeProgressActive ? 'calendar-day-card--rasterizing' : '',
+            ]"
           >
-            <header class="day-page-header">
-              <p class="header-day">
-                {{ page.dayNumber }} {{ page.dayLongLabel }}
-              </p>
-              <span
-                v-if="primaryTithiStep(page.key)"
-                class="tithi-tag tithi-tag--day-corner"
-                :class="`tithi-tag--${primaryTithiStep(page.key)?.colorKey}`"
-                :title="`Tithi ${dayTithiDetails(page.key).primaryTithi} (${primaryTithiStep(page.key)?.name})`"
-              >
-                {{ primaryTithiStep(page.key)?.name }}
-              </span>
-            </header>
-            <p class="calendar-day-iso">{{ page.fullDateLabel }}</p>
-            <div
-              v-if="dayTithiDetails(page.key).tithiNumbers.length"
-              class="calendar-day-tithis"
+            <section
+              v-if="page.kind === 'cover-front'"
+              :class="[
+                'calendar-cover-page',
+                'calendar-cover-page--front',
+                rasterizeProgressActive
+                  ? 'calendar-cover-page--rasterizing'
+                  : '',
+              ]"
             >
-              <span class="calendar-day-tithi-text">
-                <template
-                  v-for="(tithiNumber, tithiIndex) in dayTithiDetails(page.key)
-                    .tithiNumbers"
-                  :key="`${page.key}-tithi-label-${tithiNumber}`"
-                >
-                  <span
-                    class="calendar-day-tithi-token"
-                    :class="`calendar-day-tithi-token--${
-                      getMoonTithiStep(tithiNumber)?.colorKey || 'blue'
-                    }`"
-                  >
-                    {{
-                      formatTithiSummary(
-                        tithiNumber,
-                        dayTithiDetails(page.key).hourCounts,
-                      )
-                    }}
-                  </span>
-                  <span
-                    v-if="
-                      tithiIndex <
-                      dayTithiDetails(page.key).tithiNumbers.length - 1
-                    "
-                    class="calendar-day-tithi-separator"
-                    >•</span
-                  >
-                </template>
-              </span>
-            </div>
-            <ul class="event-list event-list--day">
-              <li
-                v-for="event in page.events"
-                :key="event.id"
-                class="event-block"
-              >
-                <div
-                  v-if="event.glyphRows.length === 2"
-                  class="event-glyphs event-glyphs--day-lead event-glyphs--aspect-inline"
-                >
-                  <div
-                    class="glyph-row"
-                    :class="event.glyphRows[0].elementClass"
-                  >
-                    <span class="glyph-char">{{
-                      event.glyphRows[0].planetKey ||
-                      event.glyphRows[0].planetUnicode
-                    }}</span>
-                    <span class="glyph-char">{{
-                      event.glyphRows[0].zodiacKey ||
-                      event.glyphRows[0].zodiacUnicode
-                    }}</span>
-                    <span class="glyph-row-degree"
-                      >{{ event.glyphRows[0].degree }}
-                      {{ event.glyphRows[0].signName }}</span
-                    >
-                  </div>
-                  <span
-                    v-if="event.aspectPhysisKey"
-                    class="glyph-aspect-char"
-                    aria-hidden="true"
-                    >{{ event.aspectPhysisKey }}</span
-                  >
-                  <div
-                    class="glyph-row"
-                    :class="event.glyphRows[1].elementClass"
-                  >
-                    <span class="glyph-char">{{
-                      event.glyphRows[1].planetKey ||
-                      event.glyphRows[1].planetUnicode
-                    }}</span>
-                    <span class="glyph-char">{{
-                      event.glyphRows[1].zodiacKey ||
-                      event.glyphRows[1].zodiacUnicode
-                    }}</span>
-                    <span class="glyph-row-degree"
-                      >{{ event.glyphRows[1].degree }}
-                      {{ event.glyphRows[1].signName }}</span
-                    >
-                  </div>
-                </div>
-                <div
-                  v-else-if="event.glyphRows.length"
-                  class="event-glyphs event-glyphs--day-lead"
-                >
-                  <div
-                    v-for="(row, rowIndex) in event.glyphRows"
-                    :key="`${event.id}-glyph-${rowIndex}`"
-                    class="glyph-row"
-                    :class="row.elementClass"
-                  >
-                    <span class="glyph-char">{{
-                      row.planetKey || row.planetUnicode
-                    }}</span>
-                    <span class="glyph-char">{{
-                      row.zodiacKey || row.zodiacUnicode
-                    }}</span>
-                    <span class="glyph-row-degree"
-                      >{{ row.degree }} {{ row.signName }}</span
-                    >
-                  </div>
-                </div>
-                <div class="event-title-row">
-                  <p
-                    class="event-title"
-                    :class="{
-                      'event-title--natal': event.eventType === 'natal transit',
-                    }"
-                  >
-                    {{ event.mainLabel }}
-                  </p>
-                  <p v-if="event.timestamp" class="event-time">
-                    {{ event.timestamp }}
-                  </p>
-                </div>
-              </li>
-            </ul>
-            <footer class="page-day-footer">
-              <div
-                v-if="dayFooterSunMoonGlyphs(page.key)"
-                class="page-day-footer-glyphs"
-                aria-label="Sun and Moon at local noon"
-              >
+              <p class="calendar-cover-title">{{ page.coverTitle }}</p>
+              <div class="calendar-cover-footer">
+                <p class="calendar-cover-line">{{ page.locationLine }}</p>
+                <p v-if="page.natalLine" class="calendar-cover-line">
+                  {{ page.natalLine }}
+                </p>
+              </div>
+            </section>
+            <section
+              v-else-if="page.kind === 'cover-back'"
+              :class="[
+                'calendar-cover-page',
+                'calendar-cover-page--back',
+                rasterizeProgressActive
+                  ? 'calendar-cover-page--rasterizing'
+                  : '',
+              ]"
+            >
+              <div class="calendar-cover-footer">
+                <p class="calendar-cover-line">{{ page.imprintText }}</p>
+              </div>
+            </section>
+            <template v-else>
+              <header class="day-page-header">
+                <p class="header-day">
+                  {{ page.dayNumber }} {{ page.dayLongLabel }}
+                </p>
                 <span
-                  class="page-day-footer-pair"
-                  :class="dayFooterSunMoonGlyphs(page.key).sun.elementClass"
+                  v-if="primaryTithiStep(page.key)"
+                  class="tithi-tag tithi-tag--day-corner"
+                  :class="`tithi-tag--${primaryTithiStep(page.key)?.colorKey}`"
+                  :title="`Tithi ${dayTithiDetails(page.key).primaryTithi} (${primaryTithiStep(page.key)?.name})`"
                 >
-                  <span class="glyph-char">{{
-                    dayFooterSunMoonGlyphs(page.key).sun.planetKey ||
-                    dayFooterSunMoonGlyphs(page.key).sun.planetUnicode
-                  }}</span>
-                  <span class="glyph-char">{{
-                    dayFooterSunMoonGlyphs(page.key).sun.zodiacKey ||
-                    dayFooterSunMoonGlyphs(page.key).sun.zodiacUnicode
-                  }}</span>
+                  {{ primaryTithiStep(page.key)?.name }}
                 </span>
-                <span
-                  class="page-day-footer-pair"
-                  :class="dayFooterSunMoonGlyphs(page.key).moon.elementClass"
-                >
-                  <span class="glyph-char">{{
-                    dayFooterSunMoonGlyphs(page.key).moon.planetKey ||
-                    dayFooterSunMoonGlyphs(page.key).moon.planetUnicode
-                  }}</span>
-                  <span class="glyph-char">{{
-                    dayFooterSunMoonGlyphs(page.key).moon.zodiacKey ||
-                    dayFooterSunMoonGlyphs(page.key).moon.zodiacUnicode
-                  }}</span>
+              </header>
+              <p class="calendar-day-iso">{{ page.fullDateLabel }}</p>
+              <div
+                v-if="dayTithiDetails(page.key).tithiNumbers.length"
+                class="calendar-day-tithis"
+              >
+                <span class="calendar-day-tithi-text">
+                  <template
+                    v-for="(tithiNumber, tithiIndex) in dayTithiDetails(
+                      page.key,
+                    ).tithiNumbers"
+                    :key="`${page.key}-tithi-label-${tithiNumber}`"
+                  >
+                    <span
+                      class="calendar-day-tithi-token"
+                      :class="`calendar-day-tithi-token--${
+                        getMoonTithiStep(tithiNumber)?.colorKey || 'blue'
+                      }`"
+                    >
+                      {{
+                        formatTithiSummary(
+                          tithiNumber,
+                          dayTithiDetails(page.key).hourCounts,
+                        )
+                      }}
+                    </span>
+                    <span
+                      v-if="
+                        tithiIndex <
+                        dayTithiDetails(page.key).tithiNumbers.length - 1
+                      "
+                      class="calendar-day-tithi-separator"
+                    ></span>
+                  </template>
                 </span>
               </div>
-              <span
-                v-if="dayTithiDetails(page.key).primaryTithi"
-                class="page-moon-wrap page-moon-wrap--footer"
-                :class="{ 'page-moon-wrap--eclipse': dayHasEclipse(page.key) }"
-              >
-                <img
-                  v-if="moonIconSrc(dayTithiDetails(page.key).primaryTithi)"
-                  class="page-moon-icon page-moon-icon--footer"
-                  width="40"
-                  height="40"
-                  :src="moonIconSrc(dayTithiDetails(page.key).primaryTithi)"
-                  alt=""
-                  :title="`Primary tithi ${dayTithiDetails(page.key).primaryTithi}`"
-                />
-              </span>
-            </footer>
+              <ul class="event-list event-list--day">
+                <li
+                  v-for="event in page.events"
+                  :key="event.id"
+                  class="event-block"
+                >
+                  <div
+                    v-if="event.glyphRows.length === 2"
+                    class="event-glyphs event-glyphs--day-lead event-glyphs--aspect-inline"
+                  >
+                    <div
+                      class="glyph-row"
+                      :class="event.glyphRows[0].elementClass"
+                    >
+                      <span class="glyph-char">{{
+                        event.glyphRows[0].planetKey ||
+                        event.glyphRows[0].planetUnicode
+                      }}</span>
+                      <span class="glyph-char">{{
+                        event.glyphRows[0].zodiacKey ||
+                        event.glyphRows[0].zodiacUnicode
+                      }}</span>
+                      <span class="glyph-row-degree"
+                        >{{ event.glyphRows[0].degree }}
+                        {{ event.glyphRows[0].signName }}</span
+                      >
+                    </div>
+                    <span
+                      v-if="event.aspectPhysisKey"
+                      class="glyph-aspect-char"
+                      aria-hidden="true"
+                      >{{ event.aspectPhysisKey }}</span
+                    >
+                    <div
+                      class="glyph-row"
+                      :class="event.glyphRows[1].elementClass"
+                    >
+                      <span class="glyph-char">{{
+                        event.glyphRows[1].planetKey ||
+                        event.glyphRows[1].planetUnicode
+                      }}</span>
+                      <span class="glyph-char">{{
+                        event.glyphRows[1].zodiacKey ||
+                        event.glyphRows[1].zodiacUnicode
+                      }}</span>
+                      <span class="glyph-row-degree"
+                        >{{ event.glyphRows[1].degree }}
+                        {{ event.glyphRows[1].signName }}</span
+                      >
+                    </div>
+                  </div>
+                  <div
+                    v-else-if="event.glyphRows.length"
+                    class="event-glyphs event-glyphs--day-lead"
+                  >
+                    <div
+                      v-for="(row, rowIndex) in event.glyphRows"
+                      :key="`${event.id}-glyph-${rowIndex}`"
+                      class="glyph-row"
+                      :class="row.elementClass"
+                    >
+                      <span class="glyph-char">{{
+                        row.planetKey || row.planetUnicode
+                      }}</span>
+                      <span class="glyph-char">{{
+                        row.zodiacKey || row.zodiacUnicode
+                      }}</span>
+                      <span class="glyph-row-degree"
+                        >{{ row.degree }} {{ row.signName }}</span
+                      >
+                    </div>
+                  </div>
+                  <div class="event-title-row">
+                    <p
+                      class="event-title"
+                      :class="{
+                        'event-title--natal':
+                          event.eventType === 'natal transit',
+                      }"
+                    >
+                      {{ event.mainLabel }}
+                    </p>
+                    <p v-if="event.timestamp" class="event-time">
+                      {{ event.timestamp }}
+                    </p>
+                  </div>
+                </li>
+              </ul>
+              <footer class="page-day-footer">
+                <div
+                  v-if="dayFooterSunMoonGlyphs(page.key)"
+                  class="page-day-footer-glyphs"
+                  aria-label="Sun and Moon at local noon"
+                >
+                  <span
+                    class="page-day-footer-pair"
+                    :class="dayFooterSunMoonGlyphs(page.key).sun.elementClass"
+                  >
+                    <span class="glyph-char">{{
+                      dayFooterSunMoonGlyphs(page.key).sun.planetKey ||
+                      dayFooterSunMoonGlyphs(page.key).sun.planetUnicode
+                    }}</span>
+                    <span class="glyph-char">{{
+                      dayFooterSunMoonGlyphs(page.key).sun.zodiacKey ||
+                      dayFooterSunMoonGlyphs(page.key).sun.zodiacUnicode
+                    }}</span>
+                  </span>
+                  <span
+                    class="page-day-footer-pair"
+                    :class="dayFooterSunMoonGlyphs(page.key).moon.elementClass"
+                  >
+                    <span class="glyph-char">{{
+                      dayFooterSunMoonGlyphs(page.key).moon.planetKey ||
+                      dayFooterSunMoonGlyphs(page.key).moon.planetUnicode
+                    }}</span>
+                    <span class="glyph-char">{{
+                      dayFooterSunMoonGlyphs(page.key).moon.zodiacKey ||
+                      dayFooterSunMoonGlyphs(page.key).moon.zodiacUnicode
+                    }}</span>
+                  </span>
+                </div>
+                <span
+                  v-if="dayTithiDetails(page.key).primaryTithi"
+                  class="page-moon-wrap page-moon-wrap--footer"
+                  :class="{
+                    'page-moon-wrap--eclipse': dayHasEclipse(page.key),
+                  }"
+                >
+                  <img
+                    v-if="moonIconSrc(dayTithiDetails(page.key).primaryTithi)"
+                    class="page-moon-icon page-moon-icon--footer"
+                    width="40"
+                    height="40"
+                    :src="moonIconSrc(dayTithiDetails(page.key).primaryTithi)"
+                    alt=""
+                    :title="`Primary tithi ${dayTithiDetails(page.key).primaryTithi}`"
+                  />
+                </span>
+              </footer>
+            </template>
           </article>
         </div>
       </section>
@@ -1515,6 +1697,65 @@ function toDateInputValue(date) {
   overflow: visible;
   box-sizing: border-box;
   font-family: Inter, "Avenir Next", Avenir, "Segoe UI", Roboto, sans-serif;
+}
+
+.calendar-day-card--rasterizing {
+  border: 0 !important;
+  outline: none;
+  box-shadow: none;
+  border-radius: 0;
+  overflow: hidden;
+}
+
+.calendar-page--cover {
+  padding: 0.75rem;
+}
+
+.calendar-cover-page {
+  position: relative;
+  width: 100%;
+  height: 100%;
+  min-height: 0;
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  text-align: center;
+}
+
+.calendar-cover-page--rasterizing {
+  border: 0;
+  outline: none;
+  box-shadow: none;
+  background-color: #ffffff;
+}
+
+.calendar-cover-title {
+  margin: 0;
+  font-size: clamp(1.25rem, 3.6vw, 2.1rem);
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  line-height: 1.2;
+}
+
+.calendar-cover-footer {
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 0.2rem;
+}
+
+.calendar-cover-line {
+  margin: 0;
+  font-size: 0.6rem;
+  line-height: 1.2;
+  color: #5b5f69;
+  text-align: center;
 }
 
 .day-page-header {

@@ -48,9 +48,12 @@ const isGeneratingPdf = ref(false);
 const pdfError = ref("");
 const combinedPdfUrl = ref("");
 const rasterizedPageFiles = ref([]);
+const reusableBlankGridFile = ref(null);
 const rasterizeProgressCurrent = ref(0);
 const rasterizeProgressTotal = ref(0);
 const rasterizeProgressActive = ref(false);
+/** Real DOM blank grid pages inserted only while generating a PDF; cleared in `finally`. */
+const weeklyPdfPaddingSheets = ref([]);
 const astrologyEventsByDate = ref({});
 const astrologyTithisByDate = ref({});
 const astrologyContext = ref({
@@ -58,6 +61,8 @@ const astrologyContext = ref({
   latitude: "",
   longitude: "",
   timeZone: "UTC",
+  birthDateTime: "",
+  birthLocationName: "",
   startDate: "",
   endDate: "",
 });
@@ -143,6 +148,77 @@ function buildDayPageData(current) {
   };
 }
 
+function monthShortUpper(date) {
+  return date.toLocaleString("en-US", { month: "short" }).toUpperCase();
+}
+
+function formatCoverDate(date) {
+  const dd = String(date.getDate()).padStart(2, "0");
+  return `${dd} ${monthShortUpper(date)} ${date.getFullYear()}`;
+}
+
+function isWholeMonthRange(start, end) {
+  if (start.getDate() !== 1) return false;
+  const lastDay = new Date(end.getFullYear(), end.getMonth() + 1, 0).getDate();
+  return end.getDate() === lastDay;
+}
+
+function formatTimeframeCoverTitle(start, end) {
+  if (
+    start.getFullYear() === end.getFullYear() &&
+    start.getMonth() === 0 &&
+    start.getDate() === 1 &&
+    end.getMonth() === 11 &&
+    end.getDate() === 31
+  ) {
+    return String(start.getFullYear());
+  }
+
+  if (isWholeMonthRange(start, end)) {
+    const startMonth = `${monthShortUpper(start)} ${start.getFullYear()}`;
+    const endMonth = `${monthShortUpper(end)} ${end.getFullYear()}`;
+    return startMonth === endMonth ? startMonth : `${startMonth} - ${endMonth}`;
+  }
+
+  return `${formatCoverDate(start)} - ${formatCoverDate(end)}`;
+}
+
+function formatCoverLocationName(rawName) {
+  const parts = String(rawName || "")
+    .split(",")
+    .map((part) => part.trim())
+    .filter(Boolean);
+  if (parts.length >= 3) {
+    return `${parts[0]}, ${parts[parts.length - 2]}`;
+  }
+  return parts[0] || "Location not set";
+}
+
+function formatNatalCoverLine(dateTimeRaw, locationRaw) {
+  const parsed = new Date(dateTimeRaw);
+  if (Number.isNaN(parsed.getTime())) {
+    return "";
+  }
+  const when = parsed
+    .toLocaleString("en-US", {
+      month: "long",
+      day: "numeric",
+      year: "numeric",
+      hour: "numeric",
+      minute: "2-digit",
+      hour12: true,
+    })
+    .replace(" AM", "am")
+    .replace(" PM", "pm");
+  return `Natal Transits for ${when}, ${formatCoverLocationName(locationRaw)}`;
+}
+
+const hasNatalTransits = computed(() =>
+  Object.values(astrologyEventsByDate.value || {}).some((events) =>
+    (events || []).some((event) => event?.eventType === "natal transit"),
+  ),
+);
+
 /**
  * Each raster page = one 2×2 grid: left sheet (banner + Mon–Wed half) or right (Thu–Sun).
  * Order matches calendar-wizard weekly spread.
@@ -220,10 +296,66 @@ const weeklyRasterSheets = computed(() => {
   return sheets;
 });
 
-const uploadedPageCount = computed(() => weeklyRasterSheets.value.length);
-const effectivePageCount = computed(() => weeklyRasterSheets.value.length);
-const numberOfPages = computed(() => weeklyRasterSheets.value.length);
-const usingManualPageCount = computed(() => false);
+const calendarRasterSheets = computed(() => {
+  const start = parseDateInput(startDate.value);
+  const end = parseDateInput(endDate.value);
+  if (!start || !end || start.getTime() > end.getTime()) {
+    return [];
+  }
+
+  const locationLine = `Current location: ${formatCoverLocationName(
+    astrologyContext.value.locationName,
+  )}`;
+  const natalLine = hasNatalTransits.value
+    ? formatNatalCoverLine(
+        astrologyContext.value.birthDateTime,
+        astrologyContext.value.birthLocationName,
+      )
+    : "";
+
+  return [
+    {
+      key: "cover-front",
+      kind: "cover-front",
+      coverTitle: formatTimeframeCoverTitle(start, end),
+      locationLine,
+      natalLine,
+    },
+    ...weeklyRasterSheets.value.map((sheet) => ({ ...sheet, kind: "week-sheet" })),
+    {
+      key: "cover-back",
+      kind: "cover-back",
+      imprintText: "GARLAND CALENDARS",
+    },
+  ];
+});
+
+const weeklyRasterPagesForView = computed(() => {
+  const base = calendarRasterSheets.value;
+  const extra = weeklyPdfPaddingSheets.value;
+  if (!extra.length || base.length < 2) {
+    return base;
+  }
+  return [...base.slice(0, -1), ...extra, base[base.length - 1]];
+});
+
+const requiredPageCount = computed(() => calendarRasterSheets.value.length);
+const numberOfPages = ref(requiredPageCount.value);
+const uploadedPageCount = computed(() => 0);
+const effectivePageCount = computed(() =>
+  Math.max(requiredPageCount.value, Math.floor(Number(numberOfPages.value) || 0)),
+);
+const usingManualPageCount = computed(() => true);
+
+watch(
+  requiredPageCount,
+  (nextRequired) => {
+    if ((Number(numberOfPages.value) || 0) < nextRequired) {
+      numberOfPages.value = nextRequired;
+    }
+  },
+  { immediate: true },
+);
 
 watch(
   [
@@ -386,10 +518,50 @@ onUnmounted(() => {
   window.removeEventListener("pointercancel", onOutputLayoutPointerUpGlobal);
 });
 
+const repeatedBlankGridSourceIndex = computed(() =>
+  calendarRasterSheets.value.findIndex(
+    (page) => page.kind === "week-sheet" && page.isTotallyBlank,
+  ),
+);
+
 function buildSheetSlot(signatureOffset, relativePageNumber) {
   const absolutePageNumber = signatureOffset + relativePageNumber;
-  const imageFile = rasterizedPageFiles.value[absolutePageNumber - 1] ?? null;
-  const hasSourcePage = absolutePageNumber <= effectivePageCount.value;
+  const required = requiredPageCount.value;
+  const hasCovers = required >= 2;
+  const backCoverSourceIndex = required - 1;
+  const files = rasterizedPageFiles.value;
+  const paddingActive = weeklyPdfPaddingSheets.value.length > 0;
+
+  let sourceIndex = absolutePageNumber - 1;
+  if (paddingActive && files.length > 0) {
+    const abs = absolutePageNumber;
+    const effective = effectivePageCount.value;
+    const l = files.length;
+    if (abs <= required - 1) {
+      sourceIndex = abs - 1;
+    } else if (abs === effective) {
+      sourceIndex = l - 1;
+    } else if (abs >= required && abs < effective) {
+      sourceIndex = repeatedBlankGridSourceIndex.value;
+    } else if (abs > effective) {
+      const tailIndex = abs - effective - 1;
+      sourceIndex = required - 1 + tailIndex;
+    }
+  } else if (hasCovers && absolutePageNumber === effectivePageCount.value) {
+    sourceIndex = backCoverSourceIndex;
+  } else if (hasCovers && absolutePageNumber >= required) {
+    sourceIndex = repeatedBlankGridSourceIndex.value;
+  }
+  const imageFile = (() => {
+    if (sourceIndex >= 0) {
+      return files[sourceIndex] ?? null;
+    }
+    if (hasCovers && absolutePageNumber >= required) {
+      return reusableBlankGridFile.value;
+    }
+    return null;
+  })();
+  const hasSourcePage = absolutePageNumber <= effectivePageCount.value && !!imageFile;
   return {
     relativePageNumber,
     absolutePageNumber,
@@ -552,7 +724,13 @@ function onNumberOfSignaturesInput(event) {
   );
 }
 
-function onNumberOfPagesInput() {}
+function onNumberOfPagesInput(event) {
+  const next = Math.max(
+    requiredPageCount.value,
+    Math.floor(Number(event?.target?.value) || requiredPageCount.value),
+  );
+  numberOfPages.value = next;
+}
 
 function toPoints(inches) {
   return inches * 72;
@@ -918,6 +1096,7 @@ async function drawImpositionSide(
 }
 
 const rasterSheetRefs = ref({});
+const blankGridPrototypeRef = ref(null);
 
 function setRasterSheetRef(sheetKey, element) {
   if (element) {
@@ -927,20 +1106,22 @@ function setRasterSheetRef(sheetKey, element) {
   delete rasterSheetRefs.value[sheetKey];
 }
 
+function setBlankGridPrototypeRef(element) {
+  blankGridPrototypeRef.value = element || null;
+}
+
 async function rasterizeCalendarPages() {
   await nextTick();
   const files = [];
+  reusableBlankGridFile.value = null;
   rasterizeProgressCurrent.value = 0;
-  rasterizeProgressTotal.value = weeklyRasterSheets.value.length;
+  const sheets = weeklyRasterPagesForView.value;
+  rasterizeProgressTotal.value = sheets.length;
   rasterizeProgressActive.value = true;
 
   try {
-    for (
-      let pageIndex = 0;
-      pageIndex < weeklyRasterSheets.value.length;
-      pageIndex += 1
-    ) {
-      const pageData = weeklyRasterSheets.value[pageIndex];
+    for (let pageIndex = 0; pageIndex < sheets.length; pageIndex += 1) {
+      const pageData = sheets[pageIndex];
       const card = rasterSheetRefs.value[pageData.key];
       if (!card) {
         throw new Error("Calendar page card is not ready for rasterization.");
@@ -973,6 +1154,28 @@ async function rasterizeCalendarPages() {
       );
       rasterizeProgressCurrent.value = pageIndex + 1;
     }
+
+    if (blankGridPrototypeRef.value) {
+      const blankCanvas = await html2canvas(blankGridPrototypeRef.value, {
+        scale: 2,
+        useCORS: true,
+        allowTaint: false,
+        backgroundColor: "#ffffff",
+        logging: false,
+      });
+      const blankBlob = await new Promise((resolve, reject) => {
+        blankCanvas.toBlob((result) => {
+          if (!result) {
+            reject(new Error("Could not convert blank grid page to image."));
+            return;
+          }
+          resolve(result);
+        }, "image/png");
+      });
+      reusableBlankGridFile.value = new File([blankBlob], "calendar-blank-grid.png", {
+        type: "image/png",
+      });
+    }
   } finally {
     rasterizeProgressActive.value = false;
   }
@@ -987,7 +1190,7 @@ async function generatePdfOutput() {
     return;
   }
 
-  if (weeklyRasterSheets.value.length === 0) {
+  if (calendarRasterSheets.value.length === 0) {
     pdfError.value = "Choose a valid date range to create calendar pages.";
     return;
   }
@@ -1001,6 +1204,15 @@ async function generatePdfOutput() {
   isGeneratingPdf.value = true;
   pdfError.value = "";
   revokeCombinedPdfUrl();
+
+  const paddingCount = blankPagesNeeded.value;
+  if (paddingCount > 0) {
+    weeklyPdfPaddingSheets.value = Array.from({ length: paddingCount }, (_, i) => ({
+      key: `pdf-padding-blank-${i}`,
+      kind: "padding-blank-grid",
+    }));
+    await nextTick();
+  }
 
   try {
     await rasterizeCalendarPages();
@@ -1036,6 +1248,7 @@ async function generatePdfOutput() {
         ? error.message
         : "Could not generate PDF output from calendar pages.";
   } finally {
+    weeklyPdfPaddingSheets.value = [];
     isGeneratingPdf.value = false;
   }
 }
@@ -1376,12 +1589,52 @@ function toDateInputValue(date) {
         </p>
         <div class="calendar-pages-grid" :style="calendarPagesPreviewStyle">
           <article
-            v-for="sheet in weeklyRasterSheets"
+            v-for="sheet in weeklyRasterPagesForView"
             :key="sheet.key"
             :ref="(el) => setRasterSheetRef(sheet.key, el)"
-            class="weekly-raster-sheet"
+            :class="[
+              'weekly-raster-sheet',
+              sheet.kind === 'week-sheet' || sheet.kind === 'padding-blank-grid'
+                ? ''
+                : 'calendar-page--cover',
+              rasterizeProgressActive ? 'weekly-raster-sheet--rasterizing' : '',
+            ]"
           >
-            <div class="weekly-grid" :class="`weekly-grid--${sheet.side}`">
+            <section
+              v-if="sheet.kind === 'cover-front'"
+              :class="[
+                'calendar-cover-page',
+                'calendar-cover-page--front',
+                rasterizeProgressActive ? 'calendar-cover-page--rasterizing' : '',
+              ]"
+            >
+              <p class="calendar-cover-title">{{ sheet.coverTitle }}</p>
+              <div class="calendar-cover-footer">
+                <p class="calendar-cover-line">{{ sheet.locationLine }}</p>
+                <p v-if="sheet.natalLine" class="calendar-cover-line">
+                  {{ sheet.natalLine }}
+                </p>
+              </div>
+            </section>
+            <section
+              v-else-if="sheet.kind === 'cover-back'"
+              :class="[
+                'calendar-cover-page',
+                'calendar-cover-page--back',
+                rasterizeProgressActive ? 'calendar-cover-page--rasterizing' : '',
+              ]"
+            >
+              <div class="calendar-cover-footer">
+                <p class="calendar-cover-line">{{ sheet.imprintText }}</p>
+              </div>
+            </section>
+            <div
+              v-else-if="sheet.kind === 'padding-blank-grid'"
+              class="weekly-grid"
+            >
+              <div class="weekly-blank-page" aria-hidden="true" />
+            </div>
+            <div v-else class="weekly-grid" :class="`weekly-grid--${sheet.side}`">
               <div
                 v-if="sheet.isTotallyBlank"
                 class="weekly-blank-page"
@@ -1577,6 +1830,15 @@ function toDateInputValue(date) {
             </div>
           </article>
         </div>
+        <article
+          :ref="setBlankGridPrototypeRef"
+          class="weekly-raster-sheet weekly-raster-sheet--prototype"
+          aria-hidden="true"
+        >
+          <div class="weekly-grid">
+            <div class="weekly-blank-page" />
+          </div>
+        </article>
       </section>
     </section>
   </main>
@@ -1633,6 +1895,67 @@ function toDateInputValue(date) {
   font-family: Inter, "Avenir Next", Avenir, "Segoe UI", Roboto, sans-serif;
 }
 
+.weekly-raster-sheet--rasterizing {
+  border: 0 !important;
+  outline: none;
+  box-shadow: none;
+  /* html2canvas can leave a hairline at rounded corners when the inner block
+     does not fill the flex column; clip and square corners for capture only. */
+  border-radius: 0;
+  overflow: hidden;
+}
+
+.calendar-page--cover {
+  padding: 0.75rem;
+}
+
+.calendar-cover-page {
+  position: relative;
+  width: 100%;
+  height: 100%;
+  min-height: 0;
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  text-align: center;
+}
+
+.calendar-cover-page--rasterizing {
+  border: 0;
+  outline: none;
+  box-shadow: none;
+  background-color: #ffffff;
+}
+
+.calendar-cover-title {
+  margin: 0;
+  font-size: clamp(1.25rem, 3.6vw, 2.1rem);
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  line-height: 1.2;
+}
+
+.calendar-cover-footer {
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 0.2rem;
+}
+
+.calendar-cover-line {
+  margin: 0;
+  font-size: 0.6rem;
+  line-height: 1.2;
+  color: #5b5f69;
+  text-align: center;
+}
+
 .weekly-grid {
   flex: 1;
   min-height: 0;
@@ -1651,7 +1974,16 @@ function toDateInputValue(date) {
   background-image:
     linear-gradient(to right, #f2f1e8 1px, transparent 1px),
     linear-gradient(to bottom, #f2f1e8 1px, transparent 1px);
-  background-size: 0.25in 0.25in;
+  background-size: 0.125in 0.125in;
+}
+
+.weekly-raster-sheet--prototype {
+  position: fixed;
+  left: -200vw;
+  top: -200vh;
+  opacity: 0;
+  pointer-events: none;
+  z-index: -1;
 }
 
 .weekly-grid--left {
@@ -1687,7 +2019,7 @@ function toDateInputValue(date) {
   background-image:
     linear-gradient(to right, #f2f1e8 1px, transparent 1px),
     linear-gradient(to bottom, #f2f1e8 1px, transparent 1px);
-  background-size: 0.25in 0.25in;
+  background-size: 0.125in 0.125in;
 }
 
 .weekly-cell--mon {
@@ -1723,7 +2055,7 @@ function toDateInputValue(date) {
   background-image:
     linear-gradient(to right, #f2f1e8 1px, transparent 1px),
     linear-gradient(to bottom, #f2f1e8 1px, transparent 1px);
-  background-size: 0.25in 0.25in;
+  background-size: 0.125in 0.125in;
 }
 
 .weekly-cell--empty .weekly-day-placeholder {
@@ -1732,7 +2064,7 @@ function toDateInputValue(date) {
   background-image:
     linear-gradient(to right, #f2f1e8 1px, transparent 1px),
     linear-gradient(to bottom, #f2f1e8 1px, transparent 1px);
-  background-size: 0.25in 0.25in;
+  background-size: 0.125in 0.125in;
 }
 
 /* Draw only the center cross, not the outer page edges. */
