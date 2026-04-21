@@ -1,9 +1,23 @@
+@import url("https://fonts.googleapis.com/css2?family=Cutive+Mono&family=Saira:ital,wght@0,100..900;1,100..900&display=swap");
+
 :root {
+  --font-saira: "Saira", "Inter", "Avenir", "Helvetica", "Arial", sans-serif;
+  --font-cutive-mono:
+    "Cutive Mono", ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas,
+    "Liberation Mono", "Courier New", monospace;
   font-family: "Inter", "Avenir", "Helvetica", "Arial", sans-serif;
   line-height: 1.4;
   font-weight: 400;
   color: #1d1d1f;
   background-color: #f4f4f5;
+}
+
+.font-saira {
+  font-family: var(--font-saira);
+}
+
+.font-cutive-mono {
+  font-family: var(--font-cutive-mono);
 }
 
 @font-face {
