@@ -1740,6 +1740,9 @@ function toDateInputValue(date) {
                   moonIconSrc(dayTithiDetails(page.key).primaryTithi)
                 "
                 class="moon-focus-wrap"
+                :class="{
+                  'moon-focus-wrap--eclipse': dayHasEclipse(page.key),
+                }"
               >
                 <img
                   class="moon-focus-icon"
@@ -1785,6 +1788,14 @@ function toDateInputValue(date) {
               </header>
               <p v-if="!props.isMoonCalendarMode" class="calendar-day-iso">
                 {{ page.fullDateLabel }}
+              </p>
+              <p
+                v-if="
+                  !props.isMoonCalendarMode && eclipseIndicatorLabel(page.key)
+                "
+                class="page-eclipse-indicator page-eclipse-indicator--header"
+              >
+                {{ eclipseIndicatorLabel(page.key) }}
               </p>
               <div
                 v-if="
@@ -2309,8 +2320,14 @@ function toDateInputValue(date) {
   margin-bottom: 0.2rem;
 }
 
+.moon-focus-wrap--eclipse .moon-focus-icon {
+  border: 3px solid #ff6b6b;
+  border-radius: 50%;
+  box-sizing: border-box;
+}
+
 .moon-eclipse-indicator {
-  margin: 0.22rem 0 0;
+  margin: 1rem 0 0;
   padding: 0.08rem 0.36rem;
   border: 1px solid #ffb3b3;
   border-radius: 999px;
@@ -2650,6 +2667,25 @@ function toDateInputValue(date) {
 .page-moon-icon.page-moon-icon--footer {
   width: 40px;
   height: 40px;
+}
+
+.page-eclipse-indicator {
+  margin: 0;
+  padding: 0.08rem 0.36rem;
+  border: 1px solid #ffb3b3;
+  border-radius: 999px;
+  font-size: 0.5rem;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  line-height: 1.2;
+  color: #c62828;
+  background: #fff2f2;
+  text-transform: uppercase;
+}
+
+.page-eclipse-indicator--header {
+  margin: 0 0 0.3rem;
+  width: fit-content;
 }
 
 .sign-fire {

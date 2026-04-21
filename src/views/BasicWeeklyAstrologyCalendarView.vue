@@ -56,6 +56,7 @@ const rasterizeProgressActive = ref(false);
 const weeklyPdfPaddingSheets = ref([]);
 const astrologyEventsByDate = ref({});
 const astrologyTithisByDate = ref({});
+const astrologyEclipsesByDate = ref({});
 const astrologyContext = ref({
   locationName: "",
   latitude: "",
@@ -1411,11 +1412,35 @@ function dayTithiDetails(dateKey) {
 }
 
 function dayHasEclipse(dateKey) {
+  const mapped = String(astrologyEclipsesByDate.value?.[dateKey] || "");
+  if (mapped === "solar" || mapped === "lunar" || mapped === "both") {
+    return true;
+  }
   const events = astrologyEventsByDate.value?.[dateKey] ?? [];
   return events.some((event) => {
     const label = String(event?.mainLabel || "").toLowerCase();
     return label.includes("solar eclipse") || label.includes("lunar eclipse");
   });
+}
+
+function eclipseIndicatorLabel(dateKey) {
+  const mapped = String(astrologyEclipsesByDate.value?.[dateKey] || "");
+  if (mapped === "both") return "SOLAR + LUNAR ECLIPSE";
+  if (mapped === "solar") return "SOLAR ECLIPSE";
+  if (mapped === "lunar") return "LUNAR ECLIPSE";
+
+  const events = astrologyEventsByDate.value?.[dateKey] ?? [];
+  let hasSolar = false;
+  let hasLunar = false;
+  events.forEach((event) => {
+    const label = String(event?.mainLabel || "").toLowerCase();
+    if (label.includes("solar eclipse")) hasSolar = true;
+    if (label.includes("lunar eclipse")) hasLunar = true;
+  });
+  if (hasSolar && hasLunar) return "SOLAR + LUNAR ECLIPSE";
+  if (hasSolar) return "SOLAR ECLIPSE";
+  if (hasLunar) return "LUNAR ECLIPSE";
+  return "";
 }
 
 function signElementClass(signName) {
@@ -1476,6 +1501,10 @@ function onAstrologyContextUpdate(nextContext) {
 
 function onAstrologyTithisByDateUpdate(nextTithisByDate) {
   astrologyTithisByDate.value = nextTithisByDate ?? {};
+}
+
+function onAstrologyEclipsesByDateUpdate(nextEclipsesByDate) {
+  astrologyEclipsesByDate.value = nextEclipsesByDate ?? {};
 }
 
 function onImpositionControlFieldUpdate({ key, value }) {
@@ -1590,6 +1619,7 @@ function toDateInputValue(date) {
         @update:eventsByDate="onAstrologyEventsByDateUpdate"
         @update:context="onAstrologyContextUpdate"
         @update:tithisByDate="onAstrologyTithisByDateUpdate"
+        @update:eclipsesByDate="onAstrologyEclipsesByDateUpdate"
       />
 
       <PdfOutputActions :state="pdfOutputState" :handlers="pdfOutputHandlers" />
@@ -1704,6 +1734,12 @@ function toDateInputValue(date) {
                       {{ primaryTithiStep(cell.day.key)?.name }}
                     </span>
                   </header>
+                  <p
+                    v-if="eclipseIndicatorLabel(cell.day.key)"
+                    class="page-eclipse-indicator page-eclipse-indicator--header"
+                  >
+                    {{ eclipseIndicatorLabel(cell.day.key) }}
+                  </p>
                   <ul class="event-list event-list--day">
                     <li
                       v-for="event in cell.day.events"
@@ -2212,6 +2248,25 @@ function toDateInputValue(date) {
   gap: 0.45rem;
 }
 
+.weekly-day-inner .page-eclipse-indicator {
+  margin: 0;
+  padding: 0.06rem 0.24rem;
+  border: 1px solid #ffb3b3;
+  border-radius: 999px;
+  font-size: 0.4rem;
+  font-weight: 700;
+  letter-spacing: 0.05em;
+  line-height: 1.15;
+  color: #c62828;
+  background: #fff2f2;
+  text-transform: uppercase;
+}
+
+.weekly-day-inner .page-eclipse-indicator--header {
+  margin: 0 0 0.16rem;
+  width: fit-content;
+}
+
 .weekly-day-inner .page-day-footer .glyph-char {
   font-size: 1.05rem;
 }
@@ -2571,6 +2626,20 @@ function toDateInputValue(date) {
 .page-moon-icon.page-moon-icon--footer {
   width: 40px;
   height: 40px;
+}
+
+.page-eclipse-indicator {
+  margin: 0;
+  padding: 0.08rem 0.36rem;
+  border: 1px solid #ffb3b3;
+  border-radius: 999px;
+  font-size: 0.5rem;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  line-height: 1.2;
+  color: #c62828;
+  background: #fff2f2;
+  text-transform: uppercase;
 }
 
 .sign-fire {
