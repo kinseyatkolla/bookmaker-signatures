@@ -1490,25 +1490,6 @@ function moonTithiInlineLabel(dateKey) {
     .join("");
 }
 
-function shortSignName(signName) {
-  const map = {
-    Aries: "Ari",
-    Taurus: "Tau",
-    Gemini: "Gem",
-    Cancer: "Cnc",
-    Leo: "Leo",
-    Virgo: "Vir",
-    Libra: "Lib",
-    Scorpio: "Sco",
-    Sagittarius: "Sgr",
-    Capricorn: "Cap",
-    Aquarius: "Aqr",
-    Pisces: "Psc",
-  };
-  const text = String(signName || "");
-  return map[text] || text.slice(0, 3);
-}
-
 function onAstrologyEventsByDateUpdate(nextEventsByDate) {
   astrologyEventsByDate.value = nextEventsByDate ?? {};
 }
@@ -1900,16 +1881,28 @@ function toDateInputValue(date) {
                         event.glyphRows[0].planetKey ||
                         event.glyphRows[0].planetUnicode
                       }}</span>
-                      <span class="glyph-char">{{
-                        event.glyphRows[0].zodiacKey ||
-                        event.glyphRows[0].zodiacUnicode
-                      }}</span>
+                      <span
+                        v-if="!props.isMoonCalendarMode"
+                        class="glyph-char"
+                        >{{
+                          event.glyphRows[0].zodiacKey ||
+                          event.glyphRows[0].zodiacUnicode
+                        }}</span
+                      >
                       <span class="glyph-row-degree"
-                        >{{ event.glyphRows[0].degree }}
-                        {{
-                          props.isMoonCalendarMode
-                            ? shortSignName(event.glyphRows[0].signName)
-                            : event.glyphRows[0].signName
+                        >{{ event.glyphRows[0].degree
+                        }}{{
+                          !props.isMoonCalendarMode
+                            ? ` ${event.glyphRows[0].signName}`
+                            : ""
+                        }}</span
+                      >
+                      <span
+                        v-if="props.isMoonCalendarMode"
+                        class="glyph-char"
+                        >{{
+                          event.glyphRows[0].zodiacKey ||
+                          event.glyphRows[0].zodiacUnicode
                         }}</span
                       >
                     </div>
@@ -1927,16 +1920,28 @@ function toDateInputValue(date) {
                         event.glyphRows[1].planetKey ||
                         event.glyphRows[1].planetUnicode
                       }}</span>
-                      <span class="glyph-char">{{
-                        event.glyphRows[1].zodiacKey ||
-                        event.glyphRows[1].zodiacUnicode
-                      }}</span>
+                      <span
+                        v-if="!props.isMoonCalendarMode"
+                        class="glyph-char"
+                        >{{
+                          event.glyphRows[1].zodiacKey ||
+                          event.glyphRows[1].zodiacUnicode
+                        }}</span
+                      >
                       <span class="glyph-row-degree"
-                        >{{ event.glyphRows[1].degree }}
-                        {{
-                          props.isMoonCalendarMode
-                            ? shortSignName(event.glyphRows[1].signName)
-                            : event.glyphRows[1].signName
+                        >{{ event.glyphRows[1].degree
+                        }}{{
+                          !props.isMoonCalendarMode
+                            ? ` ${event.glyphRows[1].signName}`
+                            : ""
+                        }}</span
+                      >
+                      <span
+                        v-if="props.isMoonCalendarMode"
+                        class="glyph-char"
+                        >{{
+                          event.glyphRows[1].zodiacKey ||
+                          event.glyphRows[1].zodiacUnicode
                         }}</span
                       >
                     </div>
@@ -1957,17 +1962,18 @@ function toDateInputValue(date) {
                       <span class="glyph-char">{{
                         row.planetKey || row.planetUnicode
                       }}</span>
-                      <span class="glyph-char">{{
+                      <span v-if="!props.isMoonCalendarMode" class="glyph-char">{{
                         row.zodiacKey || row.zodiacUnicode
                       }}</span>
                       <span class="glyph-row-degree"
-                        >{{ row.degree }}
-                        {{
-                          props.isMoonCalendarMode
-                            ? shortSignName(row.signName)
-                            : row.signName
+                        >{{ row.degree
+                        }}{{
+                          !props.isMoonCalendarMode ? ` ${row.signName}` : ""
                         }}</span
                       >
+                      <span v-if="props.isMoonCalendarMode" class="glyph-char">{{
+                        row.zodiacKey || row.zodiacUnicode
+                      }}</span>
                     </div>
                   </div>
                   <div class="event-title-row">

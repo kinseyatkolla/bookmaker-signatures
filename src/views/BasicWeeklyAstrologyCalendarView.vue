@@ -7,6 +7,7 @@ import { buildImpositionOutputs } from "../imposition/helpers";
 import SignatureImpositionControls from "../components/SignatureImpositionControls.vue";
 import PdfOutputActions from "../components/PdfOutputActions.vue";
 import AstrologyEventsPanel from "../components/AstrologyEventsPanel.vue";
+import ProgressArcs from "../components/ProgressArcs.vue";
 import { getMoonTithiStep } from "../astrology/moonTithiDisplay";
 import {
   getPlanetKeysFromNames,
@@ -62,6 +63,7 @@ const astrologyContext = ref({
   latitude: "",
   longitude: "",
   timeZone: "UTC",
+  apiBaseUrl: "",
   birthDateTime: "",
   birthLocationName: "",
   startDate: "",
@@ -1658,7 +1660,17 @@ function toDateInputValue(date) {
                   : '',
               ]"
             >
-              <p class="calendar-cover-title">{{ sheet.coverTitle }}</p>
+              <div class="calendar-cover-body">
+                <ProgressArcs
+                  :start-date="startDate"
+                  :end-date="endDate"
+                  :api-base-url="astrologyContext.apiBaseUrl"
+                  :latitude="astrologyContext.latitude"
+                  :longitude="astrologyContext.longitude"
+                  :time-zone="astrologyContext.timeZone"
+                />
+                <p class="calendar-cover-title">{{ sheet.coverTitle }}</p>
+              </div>
               <div class="calendar-cover-footer">
                 <p class="calendar-cover-line">{{ sheet.locationLine }}</p>
                 <p v-if="sheet.natalLine" class="calendar-cover-line">
@@ -1988,6 +2000,19 @@ function toDateInputValue(date) {
   align-items: center;
   justify-content: center;
   text-align: center;
+}
+
+.calendar-cover-body {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 0.4rem;
+  width: 100%;
+  min-height: 0;
+  padding: 0.25rem 0.25rem 2.75rem;
+  box-sizing: border-box;
 }
 
 .calendar-cover-page--rasterizing {

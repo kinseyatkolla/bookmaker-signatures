@@ -590,6 +590,7 @@ const astrologyContext = computed(() => ({
   latitude: form.currentLatitude || "",
   longitude: form.currentLongitude || "",
   timeZone: locationTimeZone.value || "UTC",
+  apiBaseUrl: apiBaseUrl.value || "",
   startDate: props.startDate || "",
   endDate: props.endDate || "",
   birthDateTime: form.birthDateTime || "",
