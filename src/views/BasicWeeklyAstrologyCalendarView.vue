@@ -22,6 +22,7 @@ plusThirty.setDate(today.getDate() + 30);
 
 const startDate = ref(toDateInputValue(today));
 const endDate = ref(toDateInputValue(plusThirty));
+const coverTitleOverride = ref("");
 
 const sheetsPerSignature = ref(4);
 const numberOfSignatures = ref(1);
@@ -309,21 +310,22 @@ const calendarRasterSheets = computed(() => {
     return [];
   }
 
-  const locationLine = `Current location: ${formatCoverLocationName(
-    astrologyContext.value.locationName,
-  )}`;
+  const locationLine = formatCoverLocationName(astrologyContext.value.locationName);
   const natalLine = hasNatalTransits.value
     ? formatNatalCoverLine(
         astrologyContext.value.birthDateTime,
         astrologyContext.value.birthLocationName,
       )
     : "";
+  const coverTitle =
+    String(coverTitleOverride.value || "").trim() ||
+    formatTimeframeCoverTitle(start, end);
 
   return [
     {
       key: "cover-front",
       kind: "cover-front",
-      coverTitle: formatTimeframeCoverTitle(start, end),
+      coverTitle,
       locationLine,
       natalLine,
     },
@@ -1123,8 +1125,29 @@ function setBlankGridPrototypeRef(element) {
   blankGridPrototypeRef.value = element || null;
 }
 
+async function waitForRasterFonts() {
+  if (
+    typeof document === "undefined" ||
+    !document.fonts ||
+    typeof document.fonts.load !== "function"
+  ) {
+    return;
+  }
+  try {
+    // Ensure custom symbol/text faces are ready before html2canvas snapshots.
+    await Promise.all([
+      document.fonts.load('16px "Physis"'),
+      document.fonts.load('16px "Saira Condensed"'),
+      document.fonts.ready,
+    ]);
+  } catch {
+    // If font loading API fails, continue with best-effort rendering.
+  }
+}
+
 async function rasterizeCalendarPages() {
   await nextTick();
+  await waitForRasterFonts();
   const files = [];
   reusableBlankGridFile.value = null;
   rasterizeProgressCurrent.value = 0;
@@ -1493,6 +1516,34 @@ function primaryTithiStep(dateKey) {
   return getMoonTithiStep(primary);
 }
 
+function topRightTithiNumbers(dateKey) {
+  const hourCounts = dayTithiDetails(dateKey).hourCounts || {};
+  const entries = Object.entries(hourCounts).map(([tithi, hours]) => ({
+    tithi: Number(tithi),
+    hours: Number(hours) || 0,
+  }));
+  if (!entries.length) {
+    return [];
+  }
+  const maxHours = Math.max(...entries.map((entry) => entry.hours));
+  return entries
+    .filter((entry) => entry.hours === maxHours)
+    .sort((a, b) => a.tithi - b.tithi)
+    .map((entry) => entry.tithi);
+}
+
+function topRightTithiLabel(dateKey) {
+  const tiedTithis = topRightTithiNumbers(dateKey);
+  if (!tiedTithis.length) {
+    return "";
+  }
+  return tiedTithis
+    .map(
+      (tithiNumber) => getMoonTithiStep(tithiNumber)?.name || `T${tithiNumber}`,
+    )
+    .join(" ");
+}
+
 function onAstrologyEventsByDateUpdate(nextEventsByDate) {
   astrologyEventsByDate.value = nextEventsByDate ?? {};
 }
@@ -1605,6 +1656,16 @@ function toDateInputValue(date) {
             type="date"
           />
         </label>
+        <label class="field" for="basic-calendar-cover-title-override">
+          <span>Cover Title Override</span>
+          <input
+            id="basic-calendar-cover-title-override"
+            v-model="coverTitleOverride"
+            name="basic-calendar-cover-title-override"
+            type="text"
+            placeholder="Optional custom cover title"
+          />
+        </label>
       </div>
 
       <SignatureImpositionControls
@@ -1671,7 +1732,14 @@ function toDateInputValue(date) {
                   :longitude="astrologyContext.longitude"
                   :time-zone="astrologyContext.timeZone"
                 />
-                <p class="calendar-cover-title">{{ sheet.coverTitle }}</p>
+                <p
+                  :class="[
+                    'calendar-cover-title',
+                    sheet.natalLine ? 'calendar-cover-title--with-natal' : '',
+                  ]"
+                >
+                  {{ sheet.coverTitle }}
+                </p>
               </div>
               <div class="calendar-cover-footer">
                 <p class="calendar-cover-line">{{ sheet.locationLine }}</p>
@@ -1740,12 +1808,12 @@ function toDateInputValue(date) {
                       {{ cell.day.dayNumber }} {{ cell.day.dayLongLabel }}
                     </p>
                     <span
-                      v-if="primaryTithiStep(cell.day.key)"
+                      v-if="topRightTithiLabel(cell.day.key)"
                       class="tithi-tag tithi-tag--day-corner"
-                      :class="`tithi-tag--${primaryTithiStep(cell.day.key)?.colorKey}`"
+                      :class="`tithi-tag--${primaryTithiStep(cell.day.key)?.colorKey || 'blue'}`"
                       :title="`Tithi ${dayTithiDetails(cell.day.key).primaryTithi} (${primaryTithiStep(cell.day.key)?.name})`"
                     >
-                      {{ primaryTithiStep(cell.day.key)?.name }}
+                      {{ topRightTithiLabel(cell.day.key) }}
                     </span>
                   </header>
                   <p
@@ -2026,20 +2094,30 @@ function toDateInputValue(date) {
 
 .calendar-cover-title {
   margin: 0;
+  position: absolute;
+  left: 50%;
+  bottom: 1.4rem;
+  transform: translateX(-50%);
+  max-width: 92%;
   font-family: var(--font-saira);
   font-size: clamp(0.72rem, 2.2vw, 1rem);
   font-weight: 800;
   letter-spacing: 0.08em;
   line-height: 1.15;
   color: #1a1d24;
-  white-space: pre-line;
+  white-space: nowrap;
+  text-align: center;
+}
+
+.calendar-cover-title--with-natal {
+  bottom: 1.85rem;
 }
 
 .calendar-cover-footer {
   position: absolute;
   left: 0;
   right: 0;
-  bottom: 0;
+  bottom: 0.35rem;
   display: flex;
   flex-direction: column;
   align-items: center;
@@ -2180,12 +2258,6 @@ function toDateInputValue(date) {
 .weekly-cell--mon,
 .weekly-cell--fri {
   border-right: 1px solid #000000;
-}
-
-/* Blank filler cells should not draw black cross borders. */
-.weekly-cell--empty {
-  border-right: 0;
-  border-bottom: 0;
 }
 
 .week-banner-inner {

@@ -60,6 +60,7 @@ plusThirty.setDate(today.getDate() + 30);
 
 const startDate = ref(toDateInputValue(today));
 const endDate = ref(toDateInputValue(plusThirty));
+const coverTitleOverride = ref("");
 
 const sheetsPerSignature = ref(4);
 const numberOfSignatures = ref(1);
@@ -227,21 +228,24 @@ const calendarRasterPages = computed(() => {
     return [];
   }
 
-  const locationLine = `Current location: ${formatCoverLocationName(
+  const locationLine = formatCoverLocationName(
     astrologyContext.value.locationName,
-  )}`;
+  );
   const natalLine = hasNatalTransits.value
     ? formatNatalCoverLine(
         astrologyContext.value.birthDateTime,
         astrologyContext.value.birthLocationName,
       )
     : "";
+  const coverTitle =
+    String(coverTitleOverride.value || "").trim() ||
+    formatTimeframeCoverTitle(start, end);
 
   return [
     {
       key: "cover-front",
       kind: "cover-front",
-      coverTitle: formatTimeframeCoverTitle(start, end),
+      coverTitle,
       locationLine,
       natalLine,
     },
@@ -993,8 +997,29 @@ function setDateCardRef(dateKey, element) {
   delete dateCardRefs.value[dateKey];
 }
 
+async function waitForRasterFonts() {
+  if (
+    typeof document === "undefined" ||
+    !document.fonts ||
+    typeof document.fonts.load !== "function"
+  ) {
+    return;
+  }
+  try {
+    // Ensure custom symbol/text faces are ready before html2canvas snapshots.
+    await Promise.all([
+      document.fonts.load('16px "Physis"'),
+      document.fonts.load('16px "Saira Condensed"'),
+      document.fonts.ready,
+    ]);
+  } catch {
+    // If font loading API fails, continue with best-effort rendering.
+  }
+}
+
 async function rasterizeCalendarPages() {
   await nextTick();
+  await waitForRasterFonts();
   const files = [];
   rasterizeProgressCurrent.value = 0;
   rasterizeProgressTotal.value = calendarRasterPages.value.length;
@@ -1228,6 +1253,8 @@ const moonPhasePngUrlByTithi = (() => {
   }
   return byNumber;
 })();
+
+const coverMoonGridTithis = Array.from({ length: 30 }, (_, index) => index + 1);
 
 function moonIconSrc(tithiNumber) {
   if (typeof tithiNumber !== "number" || tithiNumber < 1 || tithiNumber > 30) {
@@ -1602,6 +1629,16 @@ function toDateInputValue(date) {
             type="date"
           />
         </label>
+        <label class="field" for="basic-calendar-cover-title-override">
+          <span>Cover Title Override</span>
+          <input
+            id="basic-calendar-cover-title-override"
+            v-model="coverTitleOverride"
+            name="basic-calendar-cover-title-override"
+            type="text"
+            placeholder="Optional custom cover title"
+          />
+        </label>
       </div>
 
       <SignatureImpositionControls
@@ -1662,6 +1699,15 @@ function toDateInputValue(date) {
               ]"
             >
               <p class="calendar-cover-title">{{ page.coverTitle }}</p>
+              <div class="calendar-cover-moon-grid" aria-hidden="true">
+                <img
+                  v-for="tithi in coverMoonGridTithis"
+                  :key="`cover-moon-${tithi}`"
+                  class="calendar-cover-moon-grid-image"
+                  :src="moonIconSrc(tithi)"
+                  alt=""
+                />
+              </div>
               <div class="calendar-cover-footer">
                 <p class="calendar-cover-line">{{ page.locationLine }}</p>
                 <p v-if="page.natalLine" class="calendar-cover-line">
@@ -1864,7 +1910,14 @@ function toDateInputValue(date) {
                 <li
                   v-for="event in dayEventsForDisplay(page)"
                   :key="event.id"
-                  class="event-block"
+                  :class="[
+                    'event-block',
+                    props.isMoonCalendarMode &&
+                    (event.eventType === 'aspect' ||
+                      event.eventType === 'ingress')
+                      ? 'event-block--moon-aspect-ingress'
+                      : '',
+                  ]"
                 >
                   <div
                     v-if="
@@ -1962,18 +2015,22 @@ function toDateInputValue(date) {
                       <span class="glyph-char">{{
                         row.planetKey || row.planetUnicode
                       }}</span>
-                      <span v-if="!props.isMoonCalendarMode" class="glyph-char">{{
-                        row.zodiacKey || row.zodiacUnicode
-                      }}</span>
+                      <span
+                        v-if="!props.isMoonCalendarMode"
+                        class="glyph-char"
+                        >{{ row.zodiacKey || row.zodiacUnicode }}</span
+                      >
                       <span class="glyph-row-degree"
                         >{{ row.degree
                         }}{{
                           !props.isMoonCalendarMode ? ` ${row.signName}` : ""
                         }}</span
                       >
-                      <span v-if="props.isMoonCalendarMode" class="glyph-char">{{
-                        row.zodiacKey || row.zodiacUnicode
-                      }}</span>
+                      <span
+                        v-if="props.isMoonCalendarMode"
+                        class="glyph-char"
+                        >{{ row.zodiacKey || row.zodiacUnicode }}</span
+                      >
                     </div>
                   </div>
                   <div class="event-title-row">
@@ -1988,6 +2045,10 @@ function toDateInputValue(date) {
                           : '',
                         event.eventType === 'tithi transition'
                           ? `event-title--tithi-${event.tithiColorKey || 'blue'}`
+                          : '',
+                        event.eventType === 'aspect' ||
+                        event.eventType === 'ingress'
+                          ? 'event-title--aspect'
                           : '',
                       ]"
                     >
@@ -2159,17 +2220,46 @@ function toDateInputValue(date) {
 
 .calendar-cover-title {
   margin: 0;
-  font-size: clamp(1.25rem, 3.6vw, 2.1rem);
+  position: absolute;
+  left: 50%;
+  bottom: 1.25rem;
+  transform: translateX(-50%);
+  max-width: 92%;
+  font-size: clamp(0.72rem, 2vw, 0.9rem);
   font-weight: 700;
-  letter-spacing: 0.06em;
-  line-height: 1.2;
+  letter-spacing: 0.04em;
+  line-height: 1.1;
+  white-space: nowrap;
+  text-align: center;
+}
+
+.calendar-cover-moon-grid {
+  position: absolute;
+  top: 0.55rem;
+  bottom: 2.35rem;
+  left: 50%;
+  width: calc(100% - 1rem);
+  display: grid;
+  grid-template-columns: repeat(5, 1fr);
+  grid-template-rows: repeat(6, 1fr);
+  gap: 0.08rem;
+  place-items: center;
+  transform: translateX(-50%);
+}
+
+.calendar-cover-moon-grid-image {
+  width: auto;
+  height: auto;
+  max-width: 100%;
+  max-height: 100%;
+  display: block;
 }
 
 .calendar-cover-footer {
   position: absolute;
   left: 0;
   right: 0;
-  bottom: 0;
+  bottom: 0.45rem;
   display: flex;
   flex-direction: column;
   align-items: center;
@@ -2462,6 +2552,10 @@ function toDateInputValue(date) {
   padding: 0;
 }
 
+.event-block--moon-aspect-ingress {
+  padding-top: 0.12rem;
+}
+
 .event-glyphs--day-lead {
   display: flex;
   flex-direction: row;
@@ -2544,6 +2638,11 @@ function toDateInputValue(date) {
 
 .event-title--natal {
   font-weight: 650;
+}
+
+.event-title--aspect {
+  font-size: 0.62rem;
+  line-height: 1.2;
 }
 
 .event-title--tithi-transition {

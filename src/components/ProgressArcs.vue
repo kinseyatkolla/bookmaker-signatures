@@ -71,10 +71,7 @@ const GUIDE_OPACITY = 0.24;
 /** Rotate guide circles so path origin sits at 9 o’clock, matching longitude 0 on the left. */
 const GUIDE_ROTATE = `rotate(180 ${CX} ${CY})`;
 
-const MOON_RING_INDEX = PLANET_STACK.length - 1;
-const R_OUTERMOST = R0 + MOON_RING_INDEX * R_STEP;
-/** Radial offset past the Moon ring so zodiac glyphs sit slightly outside the wheel. */
-const R_ZODIAC_GLYPHS = R_OUTERMOST + 4.6;
+const HIDE_MOON_RING_AFTER_DAYS = 28;
 
 const zodiacPhysisByName = getZodiacKeysFromNames();
 const zodiacUnicodeByName = getZodiacUnicodeFallback();
@@ -85,6 +82,20 @@ const chartSamples = ref([]);
 /** Calendar span in days (start noon → end noon); used for two-point Moon heuristic. */
 const spanDays = ref(1);
 const isLoading = ref(false);
+
+const showMoonRing = computed(
+  () => spanDays.value <= HIDE_MOON_RING_AFTER_DAYS,
+);
+const visiblePlanetStack = computed(() =>
+  showMoonRing.value
+    ? PLANET_STACK
+    : PLANET_STACK.filter((row) => row.key !== "moon"),
+);
+const outermostRingRadius = computed(
+  () => R0 + (visiblePlanetStack.value.length - 1) * R_STEP,
+);
+/** Radial offset past the outer ring so zodiac glyphs sit slightly outside the wheel. */
+const zodiacGlyphRadius = computed(() => outermostRingRadius.value + 4.6);
 
 const MOON_DEG_PER_DAY_CAP = 16;
 const MAX_CHART_SAMPLES = 12;
@@ -105,7 +116,7 @@ function progradeRimDeltaDeg(startDeg, endDeg) {
   const s = normalizeEclipticLongitudeDeg(startDeg);
   const e = normalizeEclipticLongitudeDeg(endDeg);
   if (s === null || e === null) return 0;
-  return ((e - s + 360) % 360 + 360) % 360;
+  return (((e - s + 360) % 360) + 360) % 360;
 }
 
 function cumulativeMoonProgradeSeries(longitudes) {
@@ -188,7 +199,7 @@ function longitudeDeltaForArc(planetKey, s0, s1, span) {
     return shortest;
   }
 
-  const forward = ((s1 - s0 + 360) % 360 + 360) % 360;
+  const forward = (((s1 - s0 + 360) % 360) + 360) % 360;
   const backward = forward - 360;
   const cap = Math.max(span, 1 / 24) * MOON_DEG_PER_DAY_CAP + 14;
 
@@ -199,8 +210,8 @@ function longitudeDeltaForArc(planetKey, s0, s1, span) {
   if (candidates.length === 0) {
     chosen = shortest;
   } else {
-    chosen = candidates.reduce((best, d) =>
-      Math.abs(d) > Math.abs(best) ? d : best,
+    chosen = candidates.reduce(
+      (best, d) => (Math.abs(d) > Math.abs(best) ? d : best),
       candidates[0],
     );
   }
@@ -244,10 +255,7 @@ function describeRingArc(r, startLng, delta) {
     useDelta = useDelta >= 0 ? 0.06 : -0.06;
   }
 
-  const segs = Math.max(
-    12,
-    Math.min(96, Math.ceil(Math.abs(useDelta) / 1.5)),
-  );
+  const segs = Math.max(12, Math.min(96, Math.ceil(Math.abs(useDelta) / 1.5)));
   const parts = [];
   for (let i = 0; i <= segs; i += 1) {
     const lng = s0 + (useDelta * i) / segs;
@@ -361,7 +369,7 @@ watch(
 );
 
 const guideRings = computed(() =>
-  PLANET_STACK.map((row, i) => ({
+  visiblePlanetStack.value.map((row, i) => ({
     key: row.key,
     r: R0 + i * R_STEP,
     stroke: row.stroke,
@@ -372,7 +380,7 @@ const guideRings = computed(() =>
 const zodiacMarks = computed(() =>
   TROPICAL_SIGN_ORDER.map((signName, i) => {
     const lngDeg = i * 30 + 15;
-    const p = lngToPoint(R_ZODIAC_GLYPHS, lngDeg);
+    const p = lngToPoint(zodiacGlyphRadius.value, lngDeg);
     const phiDeg = (Math.atan2(p.y - CY, p.x - CX) * 180) / Math.PI;
     /** Outward radial is φ; +90° aligns default text so cap/top points outward, base toward center. */
     const rotateDeg = phiDeg + 90;
@@ -393,7 +401,7 @@ function longitudesForPlanet(samples, planetKey) {
 const arcRings = computed(() => {
   const samples = chartSamples.value;
   if (!samples?.length) {
-    return PLANET_STACK.map((row, i) => ({
+    return visiblePlanetStack.value.map((row, i) => ({
       key: row.key,
       r: R0 + i * R_STEP,
       stroke: row.stroke,
@@ -402,14 +410,10 @@ const arcRings = computed(() => {
     }));
   }
 
-  return PLANET_STACK.map((row, i) => {
+  return visiblePlanetStack.value.map((row, i) => {
     const r = R0 + i * R_STEP;
     const series = longitudesForPlanet(samples, row.key);
-    const delta = displayArcDeltaForPlanet(
-      row.key,
-      series,
-      spanDays.value,
-    );
+    const delta = displayArcDeltaForPlanet(row.key, series, spanDays.value);
     const startLng = series[0];
     const d =
       typeof startLng === "number" && Number.isFinite(startLng)
@@ -464,12 +468,21 @@ const svgTitle = computed(() => {
           :cy="CY"
           :r="ring.r"
           :stroke="ring.stroke"
-          :opacity="ring.key === 'saturn' ? Math.min(GUIDE_OPACITY + 0.12, 0.45) : GUIDE_OPACITY"
+          :opacity="
+            ring.key === 'saturn'
+              ? Math.min(GUIDE_OPACITY + 0.12, 0.45)
+              : GUIDE_OPACITY
+          "
           :transform="GUIDE_ROTATE"
         />
       </g>
 
-      <g class="progress-arcs-arcs" fill="none" stroke-linecap="round" stroke-linejoin="round">
+      <g
+        class="progress-arcs-arcs"
+        fill="none"
+        stroke-linecap="round"
+        stroke-linejoin="round"
+      >
         <path
           v-for="ring in arcRings"
           :key="`arc-${ring.key}`"

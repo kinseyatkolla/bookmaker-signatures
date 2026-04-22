@@ -60,6 +60,7 @@ plusThirty.setDate(today.getDate() + 30);
 
 const startDate = ref(toDateInputValue(today));
 const endDate = ref(toDateInputValue(plusThirty));
+const coverTitleOverride = ref("");
 
 const sheetsPerSignature = ref(4);
 const numberOfSignatures = ref(1);
@@ -236,12 +237,15 @@ const calendarRasterPages = computed(() => {
         astrologyContext.value.birthLocationName,
       )
     : "";
+  const coverTitle =
+    String(coverTitleOverride.value || "").trim() ||
+    formatTimeframeCoverTitle(start, end);
 
   return [
     {
       key: "cover-front",
       kind: "cover-front",
-      coverTitle: formatTimeframeCoverTitle(start, end),
+      coverTitle,
       locationLine,
       natalLine,
     },
@@ -993,8 +997,29 @@ function setDateCardRef(dateKey, element) {
   delete dateCardRefs.value[dateKey];
 }
 
+async function waitForRasterFonts() {
+  if (
+    typeof document === "undefined" ||
+    !document.fonts ||
+    typeof document.fonts.load !== "function"
+  ) {
+    return;
+  }
+  try {
+    // Ensure custom symbol/text faces are ready before html2canvas snapshots.
+    await Promise.all([
+      document.fonts.load('16px "Physis"'),
+      document.fonts.load('16px "Saira Condensed"'),
+      document.fonts.ready,
+    ]);
+  } catch {
+    // If font loading API fails, continue with best-effort rendering.
+  }
+}
+
 async function rasterizeCalendarPages() {
   await nextTick();
+  await waitForRasterFonts();
   const files = [];
   rasterizeProgressCurrent.value = 0;
   rasterizeProgressTotal.value = calendarRasterPages.value.length;
@@ -1602,6 +1627,16 @@ function toDateInputValue(date) {
             type="date"
           />
         </label>
+        <label class="field" for="basic-calendar-cover-title-override">
+          <span>Cover Title Override</span>
+          <input
+            id="basic-calendar-cover-title-override"
+            v-model="coverTitleOverride"
+            name="basic-calendar-cover-title-override"
+            type="text"
+            placeholder="Optional custom cover title"
+          />
+        </label>
       </div>
 
       <SignatureImpositionControls
@@ -2169,7 +2204,7 @@ function toDateInputValue(date) {
   position: absolute;
   left: 0;
   right: 0;
-  bottom: 0;
+  bottom: 0.35rem;
   display: flex;
   flex-direction: column;
   align-items: center;
