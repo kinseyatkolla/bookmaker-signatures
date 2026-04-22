@@ -389,6 +389,8 @@ const zodiacMarks = computed(() =>
       char: zodiacPhysisByName[signName] || zodiacUnicodeByName[signName] || "",
       x: p.x,
       y: p.y,
+      leftPercent: ((p.x + VIEWBOX_PAD) / (VIEW + 2 * VIEWBOX_PAD)) * 100,
+      topPercent: ((p.y + VIEWBOX_PAD) / (VIEW + 2 * VIEWBOX_PAD)) * 100,
       rotateDeg,
     };
   }),
@@ -446,67 +448,68 @@ const svgTitle = computed(() => {
       'progress-arcs--cover': size === 'cover',
     }"
   >
-    <svg
-      class="progress-arcs-svg"
-      :viewBox="VIEWBOX_STR"
-      overflow="visible"
-      role="img"
-      :aria-label="svgTitle"
-    >
-      <title>{{ svgTitle }}</title>
-
-      <g
-        class="progress-arcs-guides"
-        fill="none"
-        :stroke-width="GUIDE_STROKE"
-        pointer-events="none"
+    <div class="progress-arcs-figure">
+      <svg
+        class="progress-arcs-svg"
+        :viewBox="VIEWBOX_STR"
+        overflow="visible"
+        role="img"
+        :aria-label="svgTitle"
       >
-        <circle
-          v-for="ring in guideRings"
-          :key="`guide-${ring.key}`"
-          :cx="CX"
-          :cy="CY"
-          :r="ring.r"
-          :stroke="ring.stroke"
-          :opacity="
-            ring.key === 'saturn'
-              ? Math.min(GUIDE_OPACITY + 0.12, 0.45)
-              : GUIDE_OPACITY
-          "
-          :transform="GUIDE_ROTATE"
-        />
-      </g>
+        <title>{{ svgTitle }}</title>
 
-      <g
-        class="progress-arcs-arcs"
-        fill="none"
-        stroke-linecap="round"
-        stroke-linejoin="round"
-      >
-        <path
-          v-for="ring in arcRings"
-          :key="`arc-${ring.key}`"
-          :d="ring.d"
-          :stroke="ring.stroke"
-          :stroke-width="ring.strokeWidth"
-        />
-      </g>
+        <g
+          class="progress-arcs-guides"
+          fill="none"
+          :stroke-width="GUIDE_STROKE"
+          pointer-events="none"
+        >
+          <circle
+            v-for="ring in guideRings"
+            :key="`guide-${ring.key}`"
+            :cx="CX"
+            :cy="CY"
+            :r="ring.r"
+            :stroke="ring.stroke"
+            :opacity="
+              ring.key === 'saturn'
+                ? Math.min(GUIDE_OPACITY + 0.12, 0.45)
+                : GUIDE_OPACITY
+            "
+            :transform="GUIDE_ROTATE"
+          />
+        </g>
 
-      <g class="progress-arcs-zodiac" aria-hidden="true">
-        <text
+        <g
+          class="progress-arcs-arcs"
+          fill="none"
+          stroke-linecap="round"
+          stroke-linejoin="round"
+        >
+          <path
+            v-for="ring in arcRings"
+            :key="`arc-${ring.key}`"
+            :d="ring.d"
+            :stroke="ring.stroke"
+            :stroke-width="ring.strokeWidth"
+          />
+        </g>
+      </svg>
+      <div class="progress-arcs-zodiac" aria-hidden="true">
+        <span
           v-for="m in zodiacMarks"
           :key="m.signName"
           class="progress-arcs-zodiac-glyph"
-          :x="m.x"
-          :y="m.y"
-          :transform="`rotate(${m.rotateDeg.toFixed(2)}, ${m.x.toFixed(3)}, ${m.y.toFixed(3)})`"
-          text-anchor="middle"
-          dominant-baseline="central"
+          :style="{
+            left: `${m.leftPercent}%`,
+            top: `${m.topPercent}%`,
+            transform: `translate(-50%, -50%) rotate(${m.rotateDeg.toFixed(2)}deg)`,
+          }"
         >
           {{ m.char }}
-        </text>
-      </g>
-    </svg>
+        </span>
+      </div>
+    </div>
     <p v-if="loadError" class="progress-arcs-error">{{ loadError }}</p>
   </div>
 </template>
@@ -538,13 +541,29 @@ const svgTitle = computed(() => {
   overflow: visible;
 }
 
+.progress-arcs-figure {
+  position: relative;
+  width: 100%;
+  height: 100%;
+}
+
+.progress-arcs-zodiac {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  font-size: clamp(12px, 1.8vw, 20px);
+}
+
 .progress-arcs-zodiac-glyph {
+  position: absolute;
+  display: inline-block;
   font-family: Physis, serif;
-  font-size: 5.4px;
-  fill: #4d5159;
-  paint-order: stroke fill;
-  stroke: rgba(255, 255, 255, 0.65);
-  stroke-width: 0.2px;
+  font-size: 1em;
+  line-height: 1;
+  color: #4d5159;
+  text-shadow:
+    0 0 0.35px rgba(255, 255, 255, 0.75),
+    0 0 0.35px rgba(255, 255, 255, 0.75);
 }
 
 .progress-arcs-error {

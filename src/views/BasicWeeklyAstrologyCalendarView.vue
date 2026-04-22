@@ -1548,6 +1548,18 @@ function topRightTithiLabel(dateKey) {
     .join(" ");
 }
 
+function shouldCollapseWeeklyEventLeadRow(event, dayEventCount) {
+  if ((Number(dayEventCount) || 0) < 6) {
+    return false;
+  }
+  const eventType = String(event?.eventType || "").toLowerCase().trim();
+  return (
+    eventType === "aspect" ||
+    eventType === "ingress" ||
+    eventType === "natal transit"
+  );
+}
+
 function onAstrologyEventsByDateUpdate(nextEventsByDate) {
   astrologyEventsByDate.value = nextEventsByDate ?? {};
 }
@@ -1832,7 +1844,15 @@ function toDateInputValue(date) {
                       :key="event.id"
                       class="event-block"
                     >
-                      <div class="weekly-event-symbols-row">
+                      <div
+                        v-if="
+                          !shouldCollapseWeeklyEventLeadRow(
+                            event,
+                            cell.day.events.length,
+                          )
+                        "
+                        class="weekly-event-symbols-row"
+                      >
                         <div
                           v-if="event.glyphRows.length === 2"
                           class="event-glyphs event-glyphs--day-lead event-glyphs--aspect-inline"
