@@ -445,11 +445,18 @@ function buildSheetSlot(signatureOffset, relativePageNumber) {
   const required = requiredPageCount.value;
   const hasCovers = required >= 2;
   const backCoverSourceIndex = required - 1;
+  const contentPageCount = Math.max(0, required - 1);
+  const insertedBlankCount = blankPagesNeeded.value;
+  const backCoverTargetPageNumber = contentPageCount + insertedBlankCount + 1;
   let sourceIndex = absolutePageNumber - 1;
-  if (hasCovers && absolutePageNumber === effectivePageCount.value) {
-    sourceIndex = backCoverSourceIndex;
-  } else if (hasCovers && absolutePageNumber >= required) {
-    sourceIndex = -1;
+  if (hasCovers) {
+    if (absolutePageNumber <= contentPageCount) {
+      sourceIndex = absolutePageNumber - 1;
+    } else if (absolutePageNumber === backCoverTargetPageNumber) {
+      sourceIndex = backCoverSourceIndex;
+    } else {
+      sourceIndex = -1;
+    }
   }
   const imageFile =
     sourceIndex >= 0 ? (rasterizedPageFiles.value[sourceIndex] ?? null) : null;

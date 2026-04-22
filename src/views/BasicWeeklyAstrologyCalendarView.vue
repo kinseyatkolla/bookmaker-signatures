@@ -542,29 +542,33 @@ function buildSheetSlot(signatureOffset, relativePageNumber) {
   const absolutePageNumber = signatureOffset + relativePageNumber;
   const required = requiredPageCount.value;
   const hasCovers = required >= 2;
-  const backCoverSourceIndex = required - 1;
+  const contentPageCount = Math.max(0, required - 1);
   const files = rasterizedPageFiles.value;
   const paddingActive = weeklyPdfPaddingSheets.value.length > 0;
+  const insertedBlankCount = paddingActive
+    ? weeklyPdfPaddingSheets.value.length
+    : blankPagesNeeded.value;
+  const backCoverTargetPageNumber = contentPageCount + insertedBlankCount + 1;
+  const backCoverSourceIndex = paddingActive ? files.length - 1 : required - 1;
+  const blankSlotStartPageNumber = contentPageCount + 1;
+  const blankSlotEndPageNumber = backCoverTargetPageNumber - 1;
 
   let sourceIndex = absolutePageNumber - 1;
-  if (paddingActive && files.length > 0) {
-    const abs = absolutePageNumber;
-    const effective = effectivePageCount.value;
-    const l = files.length;
-    if (abs <= required - 1) {
-      sourceIndex = abs - 1;
-    } else if (abs === effective) {
-      sourceIndex = l - 1;
-    } else if (abs >= required && abs < effective) {
+  if (hasCovers) {
+    if (absolutePageNumber <= contentPageCount) {
+      sourceIndex = absolutePageNumber - 1;
+    } else if (absolutePageNumber === backCoverTargetPageNumber) {
+      sourceIndex = backCoverSourceIndex;
+    } else if (
+      paddingActive &&
+      absolutePageNumber >= blankSlotStartPageNumber &&
+      absolutePageNumber <= blankSlotEndPageNumber
+    ) {
+      sourceIndex =
+        contentPageCount + (absolutePageNumber - blankSlotStartPageNumber);
+    } else {
       sourceIndex = repeatedBlankGridSourceIndex.value;
-    } else if (abs > effective) {
-      const tailIndex = abs - effective - 1;
-      sourceIndex = required - 1 + tailIndex;
     }
-  } else if (hasCovers && absolutePageNumber === effectivePageCount.value) {
-    sourceIndex = backCoverSourceIndex;
-  } else if (hasCovers && absolutePageNumber >= required) {
-    sourceIndex = repeatedBlankGridSourceIndex.value;
   }
   const imageFile = (() => {
     if (sourceIndex >= 0) {
