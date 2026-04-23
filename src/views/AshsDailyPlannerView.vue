@@ -92,9 +92,9 @@ const cropMarkOffset = ref(0.08);
 const cropMarkLength = ref(0.18);
 const showCropMarks = ref(true);
 const bleedTop = ref(0);
-const bleedRight = ref(0);
+const bleedRight = ref(0.25);
 const bleedBottom = ref(0);
-const bleedLeft = ref(0);
+const bleedLeft = ref(0.25);
 const horizontalGap = ref(props.defaultHorizontalGap);
 const verticalGap = ref(props.defaultVerticalGap);
 const isGeneratingPdf = ref(false);
@@ -2181,7 +2181,7 @@ const ashCoverProgressRanges = computed(() => {
   border: 1px solid #d4d7df;
   border-radius: 10px;
   background: #ffffff;
-  padding: 0.85rem;
+  padding: 0.85rem 1.35rem;
   aspect-ratio: var(--calendar-page-aspect-w) / var(--calendar-page-aspect-h);
   height: auto;
   display: flex;
@@ -2193,24 +2193,24 @@ const ashCoverProgressRanges = computed(() => {
 }
 
 .calendar-day-card--moon-mode {
-  padding-left: 1.05rem;
-  padding-right: 1.05rem;
+  padding-left: 1.45rem;
+  padding-right: 1.45rem;
 }
 
 /* All DOM pages after the first: double left/right padding vs their base. */
 .calendar-day-card--double-lr-padding {
-  padding-left: 1.7rem; /* 2 × 0.85rem */
-  padding-right: 1.7rem;
+  padding-left: calc(2.7rem + 0.4in); /* 2 × 1.35rem + extra trim-safe inset */
+  padding-right: calc(2.7rem + 0.4in);
 }
 
 .calendar-day-card--double-lr-padding.calendar-day-card--moon-mode {
-  padding-left: 2.1rem; /* 2 × 1.05rem */
-  padding-right: 2.1rem;
+  padding-left: calc(2.9rem + 0.4in); /* 2 × 1.45rem + extra trim-safe inset */
+  padding-right: calc(2.9rem + 0.4in);
 }
 
 .calendar-day-card--double-lr-padding.calendar-page--cover {
-  padding-left: 1.5rem; /* 2 × 0.75rem */
-  padding-right: 1.5rem;
+  padding-left: calc(2.5rem + 0.4in); /* 2 × 1.25rem + extra trim-safe inset */
+  padding-right: calc(2.5rem + 0.4in);
 }
 
 .calendar-trim-guide {
@@ -2240,7 +2240,7 @@ const ashCoverProgressRanges = computed(() => {
 }
 
 .calendar-page--cover {
-  padding: 0.75rem;
+  padding: 0.75rem 1.25rem;
 }
 
 .calendar-cover-page {

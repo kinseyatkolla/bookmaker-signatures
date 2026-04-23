@@ -34,11 +34,11 @@ const props = defineProps({
   },
   defaultPageWidth: {
     type: Number,
-    default: 2.75,
+    default: 2,
   },
   defaultPageHeight: {
     type: Number,
-    default: 4.25,
+    default: 4,
   },
   defaultOutputLayoutCols: {
     type: Number,
@@ -94,9 +94,9 @@ const cropMarkOffset = ref(0.08);
 const cropMarkLength = ref(0.18);
 const showCropMarks = ref(true);
 const bleedTop = ref(0);
-const bleedRight = ref(0);
+const bleedRight = ref(0.25);
 const bleedBottom = ref(0);
-const bleedLeft = ref(0);
+const bleedLeft = ref(0.25);
 const horizontalGap = ref(props.defaultHorizontalGap);
 const verticalGap = ref(props.defaultVerticalGap);
 const isGeneratingPdf = ref(false);
@@ -2102,7 +2102,7 @@ function toDateInputValue(date) {
   border: 1px solid #d4d7df;
   border-radius: 10px;
   background: #ffffff;
-  padding: 0.85rem;
+  padding: 0.85rem calc(1.35rem + 0.75in);
   aspect-ratio: var(--calendar-page-aspect-w) / var(--calendar-page-aspect-h);
   height: auto;
   display: flex;
@@ -2114,8 +2114,8 @@ function toDateInputValue(date) {
 }
 
 .calendar-day-card--moon-mode {
-  padding-left: 1.05rem;
-  padding-right: 1.05rem;
+  padding-left: calc(1.45rem + 0.75in);
+  padding-right: calc(1.45rem + 0.75in);
 }
 
 .calendar-trim-guide {
@@ -2145,7 +2145,7 @@ function toDateInputValue(date) {
 }
 
 .calendar-page--cover {
-  padding: 0.75rem;
+  padding: 0.75rem calc(1.25rem + 0.75in);
 }
 
 .calendar-cover-page {

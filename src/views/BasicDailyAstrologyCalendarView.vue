@@ -94,9 +94,9 @@ const cropMarkOffset = ref(0.08);
 const cropMarkLength = ref(0.18);
 const showCropMarks = ref(true);
 const bleedTop = ref(0);
-const bleedRight = ref(0);
+const bleedRight = ref(0.25);
 const bleedBottom = ref(0);
-const bleedLeft = ref(0);
+const bleedLeft = ref(0.25);
 const horizontalGap = ref(props.defaultHorizontalGap);
 const verticalGap = ref(props.defaultVerticalGap);
 const isGeneratingPdf = ref(false);
@@ -2076,7 +2076,7 @@ function toDateInputValue(date) {
   border: 1px solid #d4d7df;
   border-radius: 10px;
   background: #ffffff;
-  padding: 0.85rem;
+  padding: 0.85rem 1.35rem;
   aspect-ratio: var(--calendar-page-aspect-w) / var(--calendar-page-aspect-h);
   height: auto;
   display: flex;
@@ -2088,8 +2088,8 @@ function toDateInputValue(date) {
 }
 
 .calendar-day-card--moon-mode {
-  padding-left: 1.05rem;
-  padding-right: 1.05rem;
+  padding-left: 1.45rem;
+  padding-right: 1.45rem;
 }
 
 .calendar-trim-guide {
@@ -2119,7 +2119,7 @@ function toDateInputValue(date) {
 }
 
 .calendar-page--cover {
-  padding: 0.75rem;
+  padding: 0.75rem 1.25rem;
 }
 
 .calendar-cover-page {
