@@ -9,6 +9,10 @@ import {
 } from "../astrology/physisSymbolMap";
 import { buildMoonTithisForDateRange } from "../astrology/moonTithi";
 import { buildEclipseTypeByDateKey } from "../astrology/eclipseOpale";
+import {
+  buildNatalChartPreviewRows,
+  signElementClass,
+} from "../astrology/natalChartPreview";
 
 const DEFAULT_BIRTH_TIME_ZONE = "America/Chicago";
 const DEFAULT_BIRTH_LOCAL = {
@@ -41,6 +45,16 @@ const props = defineProps({
     type: Boolean,
     default: false,
   },
+  /**
+   * When true, fetches /astrology/year-ephemeris twice per year: once with
+   * moonMode false (all planets, same as Basic Daily) and once with moonMode
+   * true (Moon transits/ingresses), then merges. Use for calendars that need
+   * the full-ephemeris set plus the Moon-sampled set from correspondences-app.
+   */
+  mergeAllPlanetAndMoonEphemeris: {
+    type: Boolean,
+    default: false,
+  },
 });
 
 const emit = defineEmits([
@@ -69,7 +83,8 @@ const locationTimeZone = ref(
 
 const form = reactive({
   currentLocationQuery: "Manitou Springs, CO",
-  currentLocationName: "Manitou Springs, El Paso County, Colorado, United States",
+  currentLocationName:
+    "Manitou Springs, El Paso County, Colorado, United States",
   currentLatitude: "38.8597",
   currentLongitude: "-104.9172",
   birthDateTime: "",
@@ -86,38 +101,14 @@ const zodiacKeys = getZodiacKeysFromNames();
 const planetUnicodeFallback = getPlanetUnicodeFallback();
 const zodiacUnicodeFallback = getZodiacUnicodeFallback();
 
-const zodiacElementBySign = {
-  Aries: "fire",
-  Leo: "fire",
-  Sagittarius: "fire",
-  Taurus: "earth",
-  Virgo: "earth",
-  Capricorn: "earth",
-  Gemini: "air",
-  Libra: "air",
-  Aquarius: "air",
-  Cancer: "water",
-  Scorpio: "water",
-  Pisces: "water",
-};
-
-const NATAL_CHART_PREVIEW_KEYS = [
-  "sun",
-  "moon",
-  "mercury",
-  "venus",
-  "mars",
-  "jupiter",
-  "saturn",
-  "uranus",
-  "neptune",
-  "pluto",
-];
-
 function parseDateInput(value) {
   if (!value) return null;
   const [year, month, day] = String(value).split("-").map(Number);
-  if (!Number.isFinite(year) || !Number.isFinite(month) || !Number.isFinite(day)) {
+  if (
+    !Number.isFinite(year) ||
+    !Number.isFinite(month) ||
+    !Number.isFinite(day)
+  ) {
     return null;
   }
   return new Date(year, month - 1, day, 12, 0, 0, 0);
@@ -281,12 +272,6 @@ function zodiacGlyphKey(signName) {
   return zodiacKeys[signName] || "";
 }
 
-function signElementClass(signName) {
-  const element = zodiacElementBySign[signName];
-  if (!element) return "";
-  return `sign-${element}`;
-}
-
 function buildGlyphRow({ planetName, position }) {
   if (!position?.zodiacSignName) return null;
   const planetKey = planetGlyphKey(planetName);
@@ -340,7 +325,8 @@ function normalizeEvent(event, fallbackId) {
     event.startsAt ??
     event.datetime ??
     event.timestamp;
-  const when = typeof whenRaw === "string" ? ensureUtcIsoString(whenRaw) : whenRaw;
+  const when =
+    typeof whenRaw === "string" ? ensureUtcIsoString(whenRaw) : whenRaw;
   const dateKey = toDateKey(when);
   if (!dateKey) return null;
   const sortTime = new Date(when).getTime();
@@ -385,7 +371,10 @@ function normalizeEvent(event, fallbackId) {
       ["Aries", "Cancer", "Libra", "Capricorn"].includes(String(event.toSign));
     const prefix = (() => {
       if (!isSolsticeOrEquinox) return "";
-      if (String(event.toSign) === "Aries" || String(event.toSign) === "Libra") {
+      if (
+        String(event.toSign) === "Aries" ||
+        String(event.toSign) === "Libra"
+      ) {
         return "Equinox - ";
       }
       if (
@@ -469,9 +458,7 @@ function normalizeEvent(event, fallbackId) {
         ? baseP2
         : baseP1
       : baseP2;
-    const p1Name = moonFirstForTransitAspect
-      ? "moon"
-      : event.planet1;
+    const p1Name = moonFirstForTransitAspect ? "moon" : event.planet1;
     const p2Name = moonFirstForTransitAspect
       ? String(event.planet1 || "").toLowerCase() === "moon"
         ? event.planet2
@@ -507,7 +494,10 @@ function normalizeEvent(event, fallbackId) {
   }
 
   let aspectPhysisKey = "";
-  if ((eventType === "aspect" || eventType === "natal transit") && glyphRows.length === 2) {
+  if (
+    (eventType === "aspect" || eventType === "natal transit") &&
+    glyphRows.length === 2
+  ) {
     aspectPhysisKey = getAspectPhysisKey(event.aspectName);
   }
 
@@ -547,43 +537,9 @@ const groupedEventsObject = computed(() => {
   return object;
 });
 
-const natalChartPreviewRows = computed(() => {
-  const data = natalChartPreview.value;
-  if (!data?.planets) return [];
-
-  const rows = [];
-  for (const key of NATAL_CHART_PREVIEW_KEYS) {
-    const planet = data.planets[key];
-    if (!planet) continue;
-    const sign = planet.zodiacSignName;
-    rows.push({
-      id: key,
-      label: formatPlanetLabel(key),
-      position: `${planet.degreeFormatted || ""} ${sign || ""}`.trim(),
-      elementClass: signElementClass(sign),
-    });
-  }
-
-  const houses = data.houses;
-  if (houses?.ascendantSign) {
-    rows.push({
-      id: "asc",
-      label: "Ascendant",
-      position: `${houses.ascendantDegree || ""} ${houses.ascendantSign}`.trim(),
-      elementClass: signElementClass(houses.ascendantSign),
-    });
-  }
-  if (houses?.mcSign) {
-    rows.push({
-      id: "mc",
-      label: "Midheaven",
-      position: `${houses.mcDegree || ""} ${houses.mcSign}`.trim(),
-      elementClass: signElementClass(houses.mcSign),
-    });
-  }
-
-  return rows;
-});
+const natalChartPreviewRows = computed(() =>
+  buildNatalChartPreviewRows(natalChartPreview.value),
+);
 
 const astrologyContext = computed(() => ({
   locationName: form.currentLocationName || "",
@@ -595,6 +551,7 @@ const astrologyContext = computed(() => ({
   endDate: props.endDate || "",
   birthDateTime: form.birthDateTime || "",
   birthLocationName: form.birthLocationName || "",
+  natalChart: natalChartPreview.value,
 }));
 
 watch(
@@ -682,9 +639,11 @@ const hasValidNatalData = computed(() => {
   return !!parseCoordinates(form.birthLatitude, form.birthLongitude);
 });
 
-const natalTransitEventCount = computed(() =>
-  rawEvents.value.filter((event) => event?.type === "aspect" && event?.isNatalTransit)
-    .length,
+const natalTransitEventCount = computed(
+  () =>
+    rawEvents.value.filter(
+      (event) => event?.type === "aspect" && event?.isNatalTransit,
+    ).length,
 );
 
 watch(hasValidNatalData, (isValid) => {
@@ -705,21 +664,27 @@ watch(
   },
 );
 
-function buildRequestBody(year, options = { includeNatalChart: false }) {
-  const currentCoords = parseCoordinates(form.currentLatitude, form.currentLongitude);
+function buildRequestBody(year, options = {}) {
+  const includeNatalChart = options.includeNatalChart === true;
+  const currentCoords = parseCoordinates(
+    form.currentLatitude,
+    form.currentLongitude,
+  );
   if (!currentCoords) {
     throw new Error(
       "Current location coordinates are required. Use Find Current Location first.",
     );
   }
+  const o = options.moonModeOverride;
+  const moonModeFlag = o === true || o === false ? o : props.moonMode === true;
   const payload = {
     year: Number(year),
     latitude: currentCoords.latitude,
     longitude: currentCoords.longitude,
     sampleInterval: 6,
-    moonMode: props.moonMode === true,
+    moonMode: moonModeFlag,
   };
-  if (!options.includeNatalChart) return payload;
+  if (!includeNatalChart) return payload;
   const natalChart = buildNatalChartPayload();
   if (natalChart) {
     payload.natalChart = natalChart;
@@ -777,7 +742,9 @@ async function getBirthChartPreview() {
     didFetchBirthChart.value = true;
   } catch (error) {
     natalChartPreviewError.value =
-      error instanceof Error ? error.message : "Could not fetch birth chart preview.";
+      error instanceof Error
+        ? error.message
+        : "Could not fetch birth chart preview.";
   } finally {
     isLoadingBirthChart.value = false;
   }
@@ -835,7 +802,9 @@ async function findCurrentLocation() {
     }
   } catch (error) {
     errorMessage.value =
-      error instanceof Error ? error.message : "Could not find current location.";
+      error instanceof Error
+        ? error.message
+        : "Could not find current location.";
   } finally {
     searchingCurrentLocation.value = false;
   }
@@ -855,6 +824,52 @@ async function findBirthLocation() {
   } finally {
     searchingBirthLocation.value = false;
   }
+}
+
+function mundaneNonNatalListFromYearPayload(payload) {
+  const mundaneEvents = payload?.data?.events ?? payload?.events ?? [];
+  return Array.isArray(mundaneEvents)
+    ? mundaneEvents.filter(
+        (event) => !(event?.type === "aspect" && event?.isNatalTransit),
+      )
+    : [];
+}
+
+function yearEphemerisEventKey(event) {
+  if (event?.id != null && String(event.id) !== "") {
+    return `id:${event.id}`;
+  }
+  return [
+    event?.utcDateTime,
+    event?.localDateTime,
+    event?.type,
+    String(event?.isNatalTransit ?? ""),
+    String(event?.planet1 ?? ""),
+    String(event?.planet2 ?? ""),
+    String(event?.aspectName ?? ""),
+    String(event?.planet ?? ""),
+    String(event?.toSign ?? ""),
+    String(event?.stationType ?? ""),
+  ]
+    .map((v) => (v == null ? "" : String(v)))
+    .join("\u001e");
+}
+
+function mergeYearEphemerisNoDupes(ordered) {
+  const seen = new Set();
+  const out = [];
+  for (const e of ordered) {
+    if (!e) {
+      continue;
+    }
+    const k = yearEphemerisEventKey(e);
+    if (seen.has(k)) {
+      continue;
+    }
+    seen.add(k);
+    out.push(e);
+  }
+  return out;
 }
 
 async function loadAstrologyEvents() {
@@ -879,12 +894,57 @@ async function loadAstrologyEvents() {
     const includeNatalTransits =
       props.moonMode === true
         ? false
-        : hasValidNatalData.value && didFetchBirthChart.value && !!natalChartPreview.value;
+        : hasValidNatalData.value &&
+          didFetchBirthChart.value &&
+          !!natalChartPreview.value;
     const yearPayloads = await Promise.all(
       yearsToFetch.value.map(async (year) => {
-        const mundaneResponse = await fetch(
-          `${apiBaseUrl.value}/astrology/year-ephemeris`,
-          {
+        const ephemerisUrl = `${apiBaseUrl.value}/astrology/year-ephemeris`;
+
+        let mundaneList;
+        if (props.mergeAllPlanetAndMoonEphemeris) {
+          const [mundaneAllRes, mundaneMoonRes] = await Promise.all([
+            fetch(ephemerisUrl, {
+              method: "POST",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify(
+                buildRequestBody(year, {
+                  includeNatalChart: false,
+                  moonModeOverride: false,
+                }),
+              ),
+            }),
+            fetch(ephemerisUrl, {
+              method: "POST",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify(
+                buildRequestBody(year, {
+                  includeNatalChart: false,
+                  moonModeOverride: true,
+                }),
+              ),
+            }),
+          ]);
+          if (!mundaneAllRes.ok) {
+            throw new Error(
+              `Request failed with status ${mundaneAllRes.status}`,
+            );
+          }
+          if (!mundaneMoonRes.ok) {
+            throw new Error(
+              `Request failed with status ${mundaneMoonRes.status}`,
+            );
+          }
+          const [mundaneAllPayload, mundaneMoonPayload] = await Promise.all([
+            mundaneAllRes.json(),
+            mundaneMoonRes.json(),
+          ]);
+          mundaneList = mergeYearEphemerisNoDupes([
+            ...mundaneNonNatalListFromYearPayload(mundaneAllPayload),
+            ...mundaneNonNatalListFromYearPayload(mundaneMoonPayload),
+          ]);
+        } else {
+          const mundaneResponse = await fetch(ephemerisUrl, {
             method: "POST",
             headers: {
               "Content-Type": "application/json",
@@ -892,51 +952,52 @@ async function loadAstrologyEvents() {
             body: JSON.stringify(
               buildRequestBody(year, { includeNatalChart: false }),
             ),
-          },
-        );
+          });
 
-        if (!mundaneResponse.ok) {
-          throw new Error(`Request failed with status ${mundaneResponse.status}`);
+          if (!mundaneResponse.ok) {
+            throw new Error(
+              `Request failed with status ${mundaneResponse.status}`,
+            );
+          }
+
+          const mundanePayload = await mundaneResponse.json();
+          mundaneList = mundaneNonNatalListFromYearPayload(mundanePayload);
         }
 
-        const mundanePayload = await mundaneResponse.json();
-        const mundaneEvents =
-          mundanePayload?.data?.events ?? mundanePayload?.events ?? [];
-        const mundaneList = Array.isArray(mundaneEvents)
-          ? mundaneEvents.filter(
-              (event) => !(event?.type === "aspect" && event?.isNatalTransit),
-            )
-          : [];
-
         let natalTransitEvents = [];
+        let supplementalMundaneFromNatal = [];
         if (includeNatalTransits) {
-          const natalResponse = await fetch(
-            `${apiBaseUrl.value}/astrology/year-ephemeris`,
-            {
-              method: "POST",
-              headers: {
-                "Content-Type": "application/json",
-              },
-              body: JSON.stringify(
-                buildRequestBody(year, { includeNatalChart: true }),
-              ),
+          const natalResponse = await fetch(ephemerisUrl, {
+            method: "POST",
+            headers: {
+              "Content-Type": "application/json",
             },
-          );
+            body: JSON.stringify(
+              buildRequestBody(year, { includeNatalChart: true }),
+            ),
+          });
           if (!natalResponse.ok) {
             throw new Error(
               `Natal transit request failed with status ${natalResponse.status}`,
             );
           }
           const natalPayload = await natalResponse.json();
-          const natalEvents = natalPayload?.data?.events ?? natalPayload?.events ?? [];
-          natalTransitEvents = Array.isArray(natalEvents)
-            ? natalEvents.filter(
-                (event) => event?.type === "aspect" && event?.isNatalTransit,
-              )
-            : [];
+          const natalEvents =
+            natalPayload?.data?.events ?? natalPayload?.events ?? [];
+          const asList = Array.isArray(natalEvents) ? natalEvents : [];
+          natalTransitEvents = asList.filter(
+            (event) => event?.type === "aspect" && event?.isNatalTransit,
+          );
+          supplementalMundaneFromNatal = asList.filter(
+            (event) => !(event?.type === "aspect" && event?.isNatalTransit),
+          );
         }
 
-        return [...mundaneList, ...natalTransitEvents];
+        return mergeYearEphemerisNoDupes([
+          ...mundaneList,
+          ...supplementalMundaneFromNatal,
+          ...natalTransitEvents,
+        ]);
       }),
     );
     rawEvents.value = yearPayloads.flat();
@@ -970,7 +1031,9 @@ async function loadAstrologyEvents() {
     }
   } catch (error) {
     errorMessage.value =
-      error instanceof Error ? error.message : "Failed to fetch astrology events.";
+      error instanceof Error
+        ? error.message
+        : "Failed to fetch astrology events.";
     rawEvents.value = [];
     tithisByDate.value = {};
     eclipsesByDate.value = {};
@@ -1048,7 +1111,11 @@ watch(
             :disabled="searchingCurrentLocation"
             @click="findCurrentLocation"
           >
-            {{ searchingCurrentLocation ? "Searching..." : "Find Current Location" }}
+            {{
+              searchingCurrentLocation
+                ? "Searching..."
+                : "Find Current Location"
+            }}
           </button>
           <button
             class="small-button"
@@ -1056,7 +1123,11 @@ watch(
             :disabled="searchingBirthLocation"
             @click="findBirthLocation"
           >
-            {{ searchingBirthLocation ? "Searching Birth..." : "Find Birth Location" }}
+            {{
+              searchingBirthLocation
+                ? "Searching Birth..."
+                : "Find Birth Location"
+            }}
           </button>
           <button
             class="small-button"
@@ -1069,8 +1140,8 @@ watch(
         </div>
 
         <p v-if="!didFetchBirthChart" class="note">
-          Fetch and preview the birth chart before loading astrology events if you
-          want natal transits included automatically.
+          Fetch and preview the birth chart before loading astrology events if
+          you want natal transits included automatically.
         </p>
 
         <p v-if="form.currentLocationName" class="note">
@@ -1088,7 +1159,11 @@ watch(
         <p v-if="errorMessage" class="error-text">{{ errorMessage }}</p>
         <p v-else-if="didAttemptLoad" class="note">
           Loaded {{ rawEvents.length }} events from
-          {{ yearsToFetch.length === 1 ? yearsToFetch[0] : yearsToFetch.join(", ") }}.
+          {{
+            yearsToFetch.length === 1
+              ? yearsToFetch[0]
+              : yearsToFetch.join(", ")
+          }}.
           <template v-if="didFetchBirthChart && hasValidNatalData">
             Natal transits: {{ natalTransitEventCount }}.
           </template>
@@ -1096,7 +1171,9 @@ watch(
       </div>
 
       <div class="astrology-right">
-        <p v-if="natalChartPreviewError" class="error-text">{{ natalChartPreviewError }}</p>
+        <p v-if="natalChartPreviewError" class="error-text">
+          {{ natalChartPreviewError }}
+        </p>
         <div v-if="natalChartPreviewRows.length" class="natal-preview">
           <h3>Natal Chart Preview</h3>
           <ul class="natal-preview-list">
@@ -1113,7 +1190,10 @@ watch(
         </div>
         <div v-else class="natal-preview natal-preview--placeholder">
           <h3>Natal Chart Preview</h3>
-          <p class="note">Use Get Birth Chart to load planet, Ascendant, and Midheaven placements.</p>
+          <p class="note">
+            Use Get Birth Chart to load planet, Ascendant, and Midheaven
+            placements.
+          </p>
         </div>
       </div>
     </div>

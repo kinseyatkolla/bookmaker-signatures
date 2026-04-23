@@ -1,7 +1,15 @@
 <script setup>
 import { computed, onMounted, onUnmounted, ref, watch } from "vue";
-import { PDFDocument, rgb } from "pdf-lib";
+import { PDFDocument } from "pdf-lib";
 import { buildImpositionOutputs } from "../imposition/helpers";
+import {
+  embedPreparedImage,
+  formatInchesLabel,
+  getSheetCreepOffsetPoints,
+  impositionRasterRotationDegrees,
+  toPoints,
+} from "../imposition/pdfUtils";
+import { renderImpositionSide } from "../imposition/pdfRender";
 import SignatureImpositionControls from "../components/SignatureImpositionControls.vue";
 import PdfOutputActions from "../components/PdfOutputActions.vue";
 
@@ -33,11 +41,6 @@ const layoutSelectEnd = ref({ col: 0, row: 0 });
 const PLATE_FRONT_ROTATION_DEG = 90;
 const PLATE_BACK_ROTATION_DEG = -90;
 
-/** Added to plate rotation when rasterizing page art for PDF (slot sizing still uses plate angles). */
-function impositionRasterRotationDegrees(plateRotationDegrees) {
-  const base = Number(plateRotationDegrees) + 180;
-  return ((base % 360) + 360) % 360;
-}
 const cropMarkOffset = ref(0.08);
 const cropMarkLength = ref(0.18);
 const showCropMarks = ref(true);
@@ -50,6 +53,8 @@ const pdfError = ref("");
 const combinedPdfUrl = ref("");
 
 const pagesPerSheet = 4;
+/** Paper stack thickness per sheet layer (in) for folded-signature creep. */
+const PAGE_DEPTH_INCHES = 0.25 / 25;
 const pagesPerSignature = computed(
   () => Math.max(1, sheetsPerSignature.value) * pagesPerSheet,
 );
@@ -455,10 +460,6 @@ function onNumberOfSignaturesInput(event) {
   );
 }
 
-function toPoints(inches) {
-  return inches * 72;
-}
-
 function getOutputPageSizeInches() {
   return {
     // Keep literal physical sheet dimensions; page/content orientation is handled by slot rotation.
@@ -607,192 +608,6 @@ function downloadCombinedPdf() {
   triggerDownload(combinedPdfUrl.value, `bookmaker-output-${pageCount}p.pdf`);
 }
 
-async function embedFileImage(pdfDocument, file) {
-  const bytes = await file.arrayBuffer();
-  const lower = file.name.toLowerCase();
-
-  if (file.type === "image/png" || lower.endsWith(".png")) {
-    return pdfDocument.embedPng(bytes);
-  }
-
-  if (
-    file.type === "image/jpeg" ||
-    file.type === "image/jpg" ||
-    lower.endsWith(".jpg") ||
-    lower.endsWith(".jpeg")
-  ) {
-    return pdfDocument.embedJpg(bytes);
-  }
-
-  return null;
-}
-
-async function rotateImageFileToPngBytes(file, rotationDegreesValue) {
-  const normalized = ((Number(rotationDegreesValue) % 360) + 360) % 360;
-
-  if (normalized === 0) {
-    return file.arrayBuffer();
-  }
-
-  const imageUrl = URL.createObjectURL(file);
-
-  try {
-    const imageElement = await new Promise((resolve, reject) => {
-      const img = new Image();
-      img.onload = () => resolve(img);
-      img.onerror = () => reject(new Error("Failed to load source image."));
-      img.src = imageUrl;
-    });
-
-    const sourceWidth = imageElement.width;
-    const sourceHeight = imageElement.height;
-    const swapsDimensions = normalized === 90 || normalized === 270;
-    const canvas = document.createElement("canvas");
-    canvas.width = swapsDimensions ? sourceHeight : sourceWidth;
-    canvas.height = swapsDimensions ? sourceWidth : sourceHeight;
-
-    const context = canvas.getContext("2d");
-
-    if (!context) {
-      throw new Error("Canvas context unavailable.");
-    }
-
-    context.translate(canvas.width / 2, canvas.height / 2);
-    context.rotate((normalized * Math.PI) / 180);
-    context.drawImage(imageElement, -sourceWidth / 2, -sourceHeight / 2);
-
-    const blob = await new Promise((resolve, reject) => {
-      canvas.toBlob((result) => {
-        if (!result) {
-          reject(new Error("Failed to convert rotated image."));
-          return;
-        }
-
-        resolve(result);
-      }, "image/png");
-    });
-
-    return blob.arrayBuffer();
-  } finally {
-    URL.revokeObjectURL(imageUrl);
-  }
-}
-
-async function embedPreparedImage(pdfDocument, file, rotationDegreesValue) {
-  const lower = file.name.toLowerCase();
-  const normalized = ((Number(rotationDegreesValue) % 360) + 360) % 360;
-  const isPng = file.type === "image/png" || lower.endsWith(".png");
-  const isJpg =
-    file.type === "image/jpeg" ||
-    file.type === "image/jpg" ||
-    lower.endsWith(".jpg") ||
-    lower.endsWith(".jpeg");
-
-  if (!isPng && !isJpg) {
-    return null;
-  }
-
-  if (normalized === 0 && isPng) {
-    return embedFileImage(pdfDocument, file);
-  }
-
-  if (normalized === 0 && isJpg) {
-    return embedFileImage(pdfDocument, file);
-  }
-
-  const rotatedBytes = await rotateImageFileToPngBytes(file, normalized);
-  return pdfDocument.embedPng(rotatedBytes);
-}
-
-function drawCropMarks(
-  page,
-  x,
-  y,
-  width,
-  height,
-  markOffsetPoints,
-  markLengthPoints,
-  edges,
-) {
-  const yTop = y + height;
-  const yBottom = y;
-  const xLeft = x;
-  const xRight = x + width;
-  const lineColor = rgb(0.1, 0.1, 0.1);
-  const thickness = 0.6;
-
-  if (edges.top) {
-    page.drawLine({
-      start: { x: xLeft, y: yTop + markOffsetPoints },
-      end: { x: xLeft, y: yTop + markOffsetPoints + markLengthPoints },
-      thickness,
-      color: lineColor,
-    });
-    page.drawLine({
-      start: { x: xRight, y: yTop + markOffsetPoints },
-      end: { x: xRight, y: yTop + markOffsetPoints + markLengthPoints },
-      thickness,
-      color: lineColor,
-    });
-  }
-
-  if (edges.bottom) {
-    page.drawLine({
-      start: { x: xLeft, y: yBottom - markOffsetPoints },
-      end: { x: xLeft, y: yBottom - markOffsetPoints - markLengthPoints },
-      thickness,
-      color: lineColor,
-    });
-    page.drawLine({
-      start: { x: xRight, y: yBottom - markOffsetPoints },
-      end: { x: xRight, y: yBottom - markOffsetPoints - markLengthPoints },
-      thickness,
-      color: lineColor,
-    });
-  }
-
-  if (edges.left) {
-    page.drawLine({
-      start: { x: xLeft - markOffsetPoints, y: yTop },
-      end: { x: xLeft - markOffsetPoints - markLengthPoints, y: yTop },
-      thickness,
-      color: lineColor,
-    });
-    page.drawLine({
-      start: { x: xLeft - markOffsetPoints, y: yBottom },
-      end: { x: xLeft - markOffsetPoints - markLengthPoints, y: yBottom },
-      thickness,
-      color: lineColor,
-    });
-  }
-
-  if (edges.right) {
-    page.drawLine({
-      start: { x: xRight + markOffsetPoints, y: yTop },
-      end: { x: xRight + markOffsetPoints + markLengthPoints, y: yTop },
-      thickness,
-      color: lineColor,
-    });
-    page.drawLine({
-      start: { x: xRight + markOffsetPoints, y: yBottom },
-      end: { x: xRight + markOffsetPoints + markLengthPoints, y: yBottom },
-      thickness,
-      color: lineColor,
-    });
-  }
-}
-
-function formatInchesLabel(value) {
-  const rounded = Number(value);
-  if (!Number.isFinite(rounded)) {
-    return "0";
-  }
-
-  return Number.isInteger(rounded)
-    ? String(rounded)
-    : rounded.toFixed(2).replace(/\.?0+$/, "");
-}
-
 async function createPagePlaceholderPngBytes(slot, rotationDegreesValue) {
   const ratio = Math.max(
     0.2,
@@ -809,9 +624,9 @@ async function createPagePlaceholderPngBytes(slot, rotationDegreesValue) {
     throw new Error("Canvas context unavailable for placeholder.");
   }
 
-  context.fillStyle = "#fcfcfd";
+  context.fillStyle = "#b8b8c2";
   context.fillRect(0, 0, canvas.width, canvas.height);
-  context.strokeStyle = "#b8b8c2";
+  context.strokeStyle = "#6e6e78";
   context.lineWidth = 4;
   context.strokeRect(2, 2, canvas.width - 4, canvas.height - 4);
 
@@ -875,160 +690,52 @@ async function drawImpositionSide(
   sideLayout,
   rotationDegreesValue,
 ) {
-  const slots = sideLayout?.slots ?? [];
-  const rowCount = Math.max(1, Number(sideLayout?.rowCount) || 1);
-  const sheetCols = Math.max(1, Number(sideLayout?.sheetCols) || 1);
-  const foldHorizontal = sideLayout?.foldAxis === "horizontal";
-  const outputSize = getOutputPageSizeInches();
-  const outputWidthPoints = toPoints(outputSize.width);
-  const outputHeightPoints = toPoints(outputSize.height);
-  const slotSize = getLayoutSlotForGridInches(rotationDegreesValue);
-  const slotWidthPoints = toPoints(slotSize.width);
-  const slotHeightPoints = toPoints(slotSize.height);
-  const gapAtFoldPoints = 0;
-  const gapBetweenColsPoints = toPoints(Math.max(0, Number(verticalGap.value)));
-  const gapBetweenRowsPoints = toPoints(
-    Math.max(0, Number(horizontalGap.value)),
-  );
-
-  const sheetBlockWidthPoints = foldHorizontal
-    ? slotWidthPoints
-    : slotWidthPoints * 2 + gapAtFoldPoints;
-  const sheetBlockHeightPoints = foldHorizontal
-    ? slotHeightPoints * 2 + gapAtFoldPoints
-    : slotHeightPoints;
-
-  const totalGridWidthPoints =
-    sheetBlockWidthPoints * sheetCols +
-    gapBetweenColsPoints * Math.max(0, sheetCols - 1);
-  const totalGridHeightPoints =
-    sheetBlockHeightPoints * rowCount +
-    gapBetweenRowsPoints * Math.max(0, rowCount - 1);
-  const startX = (outputWidthPoints - totalGridWidthPoints) / 2;
-  const startY = (outputHeightPoints - totalGridHeightPoints) / 2;
-  const markOffsetPoints = toPoints(cropMarkOffset.value);
-  const markLengthPoints = toPoints(cropMarkLength.value);
-
-  for (let slotIndex = 0; slotIndex < slots.length; slotIndex += 1) {
-    const slot = slots[slotIndex];
-    const row = slot.gridRow;
-    const sheetCol = slot.sheetCol;
-    const pageIndexWithinSheet = slot.pageIndexWithinSheet;
-    const rowFromBottom = rowCount - 1 - row;
-    const cellBaseX =
-      startX + sheetCol * (sheetBlockWidthPoints + gapBetweenColsPoints);
-    const cellBaseY =
-      startY + rowFromBottom * (sheetBlockHeightPoints + gapBetweenRowsPoints);
-
-    let x;
-    let y;
-    if (foldHorizontal) {
-      x = cellBaseX;
-      y =
-        cellBaseY + pageIndexWithinSheet * (slotHeightPoints + gapAtFoldPoints);
-    } else {
-      x =
-        cellBaseX + pageIndexWithinSheet * (slotWidthPoints + gapAtFoldPoints);
-      y = cellBaseY;
-    }
-
-    const cropTop = foldHorizontal
-      ? row === 0 && pageIndexWithinSheet === 1
-      : row === 0;
-    const cropBottom = foldHorizontal
-      ? row === rowCount - 1 && pageIndexWithinSheet === 0
-      : row === rowCount - 1;
-    const cropLeft = foldHorizontal
-      ? sheetCol === 0
-      : sheetCol === 0 && pageIndexWithinSheet === 0;
-    const cropRight = foldHorizontal
-      ? sheetCol === sheetCols - 1
-      : sheetCol === sheetCols - 1 && pageIndexWithinSheet === 1;
-
-    if (showCropMarks.value) {
-      drawCropMarks(
-        page,
-        x,
-        y,
-        slotWidthPoints,
-        slotHeightPoints,
-        markOffsetPoints,
-        markLengthPoints,
-        {
-          top: cropTop,
-          bottom: cropBottom,
-          left: cropLeft,
-          right: cropRight,
-        },
-      );
-    }
-
-    const rasterRotation = foldHorizontal
-      ? impositionRasterRotationDegrees(rotationDegreesValue)
-      : 0;
-
-    if (!slot.file && slot.hasSourcePage) {
-      const placeholderBytes = await createPagePlaceholderPngBytes(
-        slot,
-        rasterRotation,
-      );
-      const placeholderImage = await pdfDocument.embedPng(placeholderBytes);
-      page.drawImage(placeholderImage, {
-        x,
-        y,
-        width: slotWidthPoints,
-        height: slotHeightPoints,
-      });
-      continue;
-    }
-
-    if (!slot.file) {
-      continue;
-    }
-
-    const embeddedImage = await embedPreparedImage(
-      pdfDocument,
-      slot.file,
-      rasterRotation,
-    );
-
-    if (!embeddedImage && slot.hasSourcePage) {
-      const placeholderBytes = await createPagePlaceholderPngBytes(
-        slot,
-        rasterRotation,
-      );
-      const placeholderImage = await pdfDocument.embedPng(placeholderBytes);
-      page.drawImage(placeholderImage, {
-        x,
-        y,
-        width: slotWidthPoints,
-        height: slotHeightPoints,
-      });
-      continue;
-    }
-
-    if (!embeddedImage) {
-      continue;
-    }
-
-    const imageWidth = embeddedImage.width;
-    const imageHeight = embeddedImage.height;
-    const scale = Math.min(
-      slotWidthPoints / imageWidth,
-      slotHeightPoints / imageHeight,
-    );
-    const drawnWidth = imageWidth * scale;
-    const drawnHeight = imageHeight * scale;
-    const centeredX = x + (slotWidthPoints - drawnWidth) / 2;
-    const centeredY = y + (slotHeightPoints - drawnHeight) / 2;
-
-    page.drawImage(embeddedImage, {
-      x: centeredX,
-      y: centeredY,
-      width: drawnWidth,
-      height: drawnHeight,
-    });
-  }
+  await renderImpositionSide({
+    page,
+    pdfDocument,
+    sideLayout,
+    rotationDegreesValue,
+    getOutputPageSizeInches,
+    getLayoutSlotForGridInches,
+    verticalGap: verticalGap.value,
+    horizontalGap: horizontalGap.value,
+    cropMarkOffset: cropMarkOffset.value,
+    cropMarkLength: cropMarkLength.value,
+    showCropMarks: showCropMarks.value,
+    getSlotOffset: ({ slot, foldHorizontal, pageIndexWithinSheet }) =>
+      getSheetCreepOffsetPoints({
+        sheetNumber: slot.sheetNumber ?? 1,
+        foldHorizontal,
+        pageIndexWithinSheet,
+        pageDepthInches: PAGE_DEPTH_INCHES,
+      }),
+    resolveSlotAsset: async ({ slot, rasterRotation, pdfDocument: doc }) => {
+      if (!slot.file && slot.hasSourcePage) {
+        const placeholderBytes = await createPagePlaceholderPngBytes(
+          slot,
+          rasterRotation,
+        );
+        const placeholderImage = await doc.embedPng(placeholderBytes);
+        return { image: placeholderImage, fitMode: "fill-slot" };
+      }
+      if (!slot.file) {
+        return null;
+      }
+      const embeddedImage = await embedPreparedImage(doc, slot.file, rasterRotation);
+      if (!embeddedImage && slot.hasSourcePage) {
+        const placeholderBytes = await createPagePlaceholderPngBytes(
+          slot,
+          rasterRotation,
+        );
+        const placeholderImage = await doc.embedPng(placeholderBytes);
+        return { image: placeholderImage, fitMode: "fill-slot" };
+      }
+      if (!embeddedImage) {
+        return null;
+      }
+      return { image: embeddedImage, fitMode: "contain" };
+    },
+  });
 }
 
 async function generatePdfOutput() {

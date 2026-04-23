@@ -452,6 +452,7 @@ const svgTitle = computed(() => {
       <svg
         class="progress-arcs-svg"
         :viewBox="VIEWBOX_STR"
+        preserveAspectRatio="xMidYMid meet"
         overflow="visible"
         role="img"
         :aria-label="svgTitle"
@@ -556,7 +557,12 @@ const svgTitle = computed(() => {
 
 .progress-arcs-zodiac-glyph {
   position: absolute;
-  display: inline-block;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 1em;
+  height: 1em;
+  aspect-ratio: 1;
   font-family: Physis, serif;
   font-size: 1em;
   line-height: 1;

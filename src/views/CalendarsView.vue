@@ -35,6 +35,14 @@
             Daily Moon Calendar
           </RouterLink>
         </li>
+        <li>
+          <RouterLink
+            class="primary-button calendars-nav-button"
+            to="/calendars/ashs-daily-planner"
+          >
+            Ash's Daily Planner
+          </RouterLink>
+        </li>
       </ul>
     </section>
   </main>

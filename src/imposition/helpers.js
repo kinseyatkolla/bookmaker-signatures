@@ -95,6 +95,7 @@ export function placeSheetsOnOutputSheet({ sheets, side, pattern, foldAxis }) {
       const slot = slotPair[pageIndex];
       placedSlots.push({
         ...slot,
+        sheetNumber: sheet?.sheetNumber,
         gridRow: sheetRow,
         sheetCol,
         pageIndexWithinSheet: pageIndex,
