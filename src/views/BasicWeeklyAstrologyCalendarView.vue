@@ -852,6 +852,13 @@ async function drawImpositionSide(
     cropMarkOffset: cropMarkOffset.value,
     cropMarkLength: cropMarkLength.value,
     showCropMarks: showCropMarks.value,
+    bleedInches: {
+      top: bleedTop.value,
+      right: bleedRight.value,
+      bottom: bleedBottom.value,
+      left: bleedLeft.value,
+    },
+    pageTrimInches: { width: Number(pageWidth.value), height: Number(pageHeight.value) },
     getSlotOffset: ({ slot, foldHorizontal, pageIndexWithinSheet }) =>
       getSheetCreepOffsetPoints({
         sheetNumber: slot.sheetNumber ?? 1,
@@ -1081,6 +1088,23 @@ watch([pageWidth, pageHeight], () => {
   calendarPagesPreviewStyle.value = buildCalendarPagesPreviewStyle();
 });
 
+const calendarTrimGuideStyle = computed(() => {
+  const trimWidth = Math.max(0.01, Number(pageWidth.value) || 0.01);
+  const trimHeight = Math.max(0.01, Number(pageHeight.value) || 0.01);
+  const bleedT = Math.max(0, Number(bleedTop.value) || 0);
+  const bleedR = Math.max(0, Number(bleedRight.value) || 0);
+  const bleedB = Math.max(0, Number(bleedBottom.value) || 0);
+  const bleedL = Math.max(0, Number(bleedLeft.value) || 0);
+  const totalW = trimWidth + bleedL + bleedR;
+  const totalH = trimHeight + bleedT + bleedB;
+  return {
+    "--trim-guide-top": `${(bleedT / totalH) * 100}%`,
+    "--trim-guide-right": `${(bleedR / totalW) * 100}%`,
+    "--trim-guide-bottom": `${(bleedB / totalH) * 100}%`,
+    "--trim-guide-left": `${(bleedL / totalW) * 100}%`,
+  };
+});
+
 const astrologyTimeframeLabel = computed(() => {
   const start = parseDateInput(startDate.value);
   const end = parseDateInput(endDate.value);
@@ -1129,6 +1153,10 @@ const impositionControlForm = computed(() => ({
   showCropMarks: showCropMarks.value,
   cropMarkOffset: cropMarkOffset.value,
   cropMarkLength: cropMarkLength.value,
+  bleedTop: bleedTop.value,
+  bleedRight: bleedRight.value,
+  bleedBottom: bleedBottom.value,
+  bleedLeft: bleedLeft.value,
   numberOfPages: numberOfPages.value,
   outputFoldAxis: outputFoldAxis.value,
 }));
@@ -1363,6 +1391,18 @@ function onImpositionControlFieldUpdate({ key, value }) {
     case "cropMarkLength":
       cropMarkLength.value = value;
       break;
+    case "bleedTop":
+      bleedTop.value = Math.max(0, Number(value) || 0);
+      break;
+    case "bleedRight":
+      bleedRight.value = Math.max(0, Number(value) || 0);
+      break;
+    case "bleedBottom":
+      bleedBottom.value = Math.max(0, Number(value) || 0);
+      break;
+    case "bleedLeft":
+      bleedLeft.value = Math.max(0, Number(value) || 0);
+      break;
     case "outputFoldAxis":
       outputFoldAxis.value = value;
       break;
@@ -1474,6 +1514,7 @@ function toDateInputValue(date) {
             v-for="sheet in weeklyRasterPagesForView"
             :key="sheet.key"
             :ref="(el) => setRasterSheetRef(sheet.key, el)"
+            :style="calendarTrimGuideStyle"
             :class="[
               'weekly-raster-sheet',
               sheet.kind === 'week-sheet' || sheet.kind === 'padding-blank-grid'
@@ -1482,6 +1523,7 @@ function toDateInputValue(date) {
               rasterizeProgressActive ? 'weekly-raster-sheet--rasterizing' : '',
             ]"
           >
+            <div class="calendar-trim-guide" aria-hidden="true" />
             <section
               v-if="sheet.kind === 'cover-front'"
               :class="[
@@ -1824,6 +1866,19 @@ function toDateInputValue(date) {
   font-family: Inter, "Avenir Next", Avenir, "Segoe UI", Roboto, sans-serif;
 }
 
+.calendar-trim-guide {
+  position: absolute;
+  top: var(--trim-guide-top, 0%);
+  right: var(--trim-guide-right, 0%);
+  bottom: var(--trim-guide-bottom, 0%);
+  left: var(--trim-guide-left, 0%);
+  border: 1.5px dashed #ff4f87;
+  border-radius: 0;
+  pointer-events: none;
+  z-index: 50;
+  box-sizing: border-box;
+}
+
 .weekly-raster-sheet--rasterizing {
   border: 0 !important;
   outline: none;
@@ -1832,6 +1887,10 @@ function toDateInputValue(date) {
      does not fill the flex column; clip and square corners for capture only. */
   border-radius: 0;
   overflow: hidden;
+}
+
+.weekly-raster-sheet--rasterizing .calendar-trim-guide {
+  display: none;
 }
 
 .calendar-page--cover {

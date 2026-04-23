@@ -86,6 +86,10 @@ const PLATE_BACK_ROTATION_DEG = -90;
 const cropMarkOffset = ref(0.08);
 const cropMarkLength = ref(0.18);
 const showCropMarks = ref(true);
+const bleedTop = ref(0);
+const bleedRight = ref(0);
+const bleedBottom = ref(0);
+const bleedLeft = ref(0);
 const horizontalGap = ref(props.defaultHorizontalGap);
 const verticalGap = ref(props.defaultVerticalGap);
 const isGeneratingPdf = ref(false);
@@ -740,6 +744,13 @@ async function drawImpositionSide(
     cropMarkOffset: cropMarkOffset.value,
     cropMarkLength: cropMarkLength.value,
     showCropMarks: showCropMarks.value,
+    bleedInches: {
+      top: bleedTop.value,
+      right: bleedRight.value,
+      bottom: bleedBottom.value,
+      left: bleedLeft.value,
+    },
+    pageTrimInches: { width: Number(pageWidth.value), height: Number(pageHeight.value) },
     getSlotOffset: ({ slot, foldHorizontal, pageIndexWithinSheet }) =>
       getSheetCreepOffsetPoints({
         sheetNumber: slot.sheetNumber ?? 1,
@@ -927,6 +938,23 @@ watch([pageWidth, pageHeight], () => {
   calendarPagesPreviewStyle.value = buildCalendarPagesPreviewStyle();
 });
 
+const calendarTrimGuideStyle = computed(() => {
+  const trimWidth = Math.max(0.01, Number(pageWidth.value) || 0.01);
+  const trimHeight = Math.max(0.01, Number(pageHeight.value) || 0.01);
+  const bleedT = Math.max(0, Number(bleedTop.value) || 0);
+  const bleedR = Math.max(0, Number(bleedRight.value) || 0);
+  const bleedB = Math.max(0, Number(bleedBottom.value) || 0);
+  const bleedL = Math.max(0, Number(bleedLeft.value) || 0);
+  const totalW = trimWidth + bleedL + bleedR;
+  const totalH = trimHeight + bleedT + bleedB;
+  return {
+    "--trim-guide-top": `${(bleedT / totalH) * 100}%`,
+    "--trim-guide-right": `${(bleedR / totalW) * 100}%`,
+    "--trim-guide-bottom": `${(bleedB / totalH) * 100}%`,
+    "--trim-guide-left": `${(bleedL / totalW) * 100}%`,
+  };
+});
+
 const astrologyTimeframeLabel = computed(() => {
   const start = parseDateInput(startDate.value);
   const end = parseDateInput(endDate.value);
@@ -975,6 +1003,10 @@ const impositionControlForm = computed(() => ({
   showCropMarks: showCropMarks.value,
   cropMarkOffset: cropMarkOffset.value,
   cropMarkLength: cropMarkLength.value,
+  bleedTop: bleedTop.value,
+  bleedRight: bleedRight.value,
+  bleedBottom: bleedBottom.value,
+  bleedLeft: bleedLeft.value,
   numberOfPages: numberOfPages.value,
   outputFoldAxis: outputFoldAxis.value,
 }));
@@ -1323,6 +1355,18 @@ function onImpositionControlFieldUpdate({ key, value }) {
     case "cropMarkLength":
       cropMarkLength.value = value;
       break;
+    case "bleedTop":
+      bleedTop.value = Math.max(0, Number(value) || 0);
+      break;
+    case "bleedRight":
+      bleedRight.value = Math.max(0, Number(value) || 0);
+      break;
+    case "bleedBottom":
+      bleedBottom.value = Math.max(0, Number(value) || 0);
+      break;
+    case "bleedLeft":
+      bleedLeft.value = Math.max(0, Number(value) || 0);
+      break;
     case "outputFoldAxis":
       outputFoldAxis.value = value;
       break;
@@ -1456,6 +1500,7 @@ const ashCoverProgressRanges = computed(() => {
             v-for="(page, pageIndex) in calendarRasterPages"
             :key="page.key"
             :ref="(el) => setDateCardRef(page.key, el)"
+            :style="calendarTrimGuideStyle"
             :class="[
               'calendar-day-card',
               page.kind === 'day'
@@ -1468,6 +1513,7 @@ const ashCoverProgressRanges = computed(() => {
               rasterizeProgressActive ? 'calendar-day-card--rasterizing' : '',
             ]"
           >
+            <div class="calendar-trim-guide" aria-hidden="true" />
             <section
               v-if="page.kind === 'cover-front'"
               :class="[
@@ -2041,6 +2087,24 @@ const ashCoverProgressRanges = computed(() => {
 .calendar-day-card--double-lr-padding.calendar-page--cover {
   padding-left: 1.5rem; /* 2 × 0.75rem */
   padding-right: 1.5rem;
+}
+
+.calendar-trim-guide {
+  position: absolute;
+  top: var(--trim-guide-top, 0%);
+  right: var(--trim-guide-right, 0%);
+  bottom: var(--trim-guide-bottom, 0%);
+  left: var(--trim-guide-left, 0%);
+  border: 1.5px dashed #ff4f87;
+  border-radius: 0;
+  pointer-events: none;
+  z-index: 50;
+  box-sizing: border-box;
+}
+
+.calendar-day-card--rasterizing .calendar-trim-guide,
+.weekly-raster-sheet--rasterizing .calendar-trim-guide {
+  display: none;
 }
 
 .calendar-day-card--rasterizing {

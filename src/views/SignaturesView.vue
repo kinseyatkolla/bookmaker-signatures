@@ -44,6 +44,10 @@ const PLATE_BACK_ROTATION_DEG = -90;
 const cropMarkOffset = ref(0.08);
 const cropMarkLength = ref(0.18);
 const showCropMarks = ref(true);
+const bleedTop = ref(0);
+const bleedRight = ref(0);
+const bleedBottom = ref(0);
+const bleedLeft = ref(0);
 /** Space between sheet rows on the output (adds to total layout height). */
 const horizontalGap = ref(0.08);
 /** Space between sheet columns on the output (adds to total layout width). */
@@ -519,6 +523,10 @@ const impositionControlForm = computed(() => ({
   showCropMarks: showCropMarks.value,
   cropMarkOffset: cropMarkOffset.value,
   cropMarkLength: cropMarkLength.value,
+  bleedTop: bleedTop.value,
+  bleedRight: bleedRight.value,
+  bleedBottom: bleedBottom.value,
+  bleedLeft: bleedLeft.value,
   numberOfPages: numberOfPages.value,
   outputFoldAxis: outputFoldAxis.value,
 }));
@@ -583,6 +591,18 @@ function onImpositionControlFieldUpdate({ key, value }) {
       break;
     case "cropMarkLength":
       cropMarkLength.value = value;
+      break;
+    case "bleedTop":
+      bleedTop.value = Math.max(0, Number(value) || 0);
+      break;
+    case "bleedRight":
+      bleedRight.value = Math.max(0, Number(value) || 0);
+      break;
+    case "bleedBottom":
+      bleedBottom.value = Math.max(0, Number(value) || 0);
+      break;
+    case "bleedLeft":
+      bleedLeft.value = Math.max(0, Number(value) || 0);
       break;
     case "outputFoldAxis":
       outputFoldAxis.value = value;
@@ -702,6 +722,13 @@ async function drawImpositionSide(
     cropMarkOffset: cropMarkOffset.value,
     cropMarkLength: cropMarkLength.value,
     showCropMarks: showCropMarks.value,
+    bleedInches: {
+      top: bleedTop.value,
+      right: bleedRight.value,
+      bottom: bleedBottom.value,
+      left: bleedLeft.value,
+    },
+    pageTrimInches: { width: Number(pageWidth.value), height: Number(pageHeight.value) },
     getSlotOffset: ({ slot, foldHorizontal, pageIndexWithinSheet }) =>
       getSheetCreepOffsetPoints({
         sheetNumber: slot.sheetNumber ?? 1,

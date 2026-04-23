@@ -21,6 +21,8 @@ export async function renderImpositionSide({
   getSlotOffset = () => ({ dx: 0, dy: 0 }),
   getRasterRotation = impositionRasterRotationDegrees,
   clipOnOffset = true,
+  bleedInches = null,
+  pageTrimInches = null,
 }) {
   const slots = sideLayout?.slots ?? [];
   const rowCount = Math.max(1, Number(sideLayout?.rowCount) || 1);
@@ -134,6 +136,7 @@ export async function renderImpositionSide({
     let drawH = slotHeightPoints;
     let drawX = x;
     let drawY = y;
+    let bleedActive = false;
 
     if (fitMode === "contain") {
       const imageWidth = asset.image.width;
@@ -143,6 +146,28 @@ export async function renderImpositionSide({
       drawH = imageHeight * scale;
       drawX = x + (slotWidthPoints - drawW) / 2;
       drawY = y + (slotHeightPoints - drawH) / 2;
+    }
+
+    if (fitMode === "contain" && bleedInches && pageTrimInches) {
+      const bleed = mapBleedForRotation(
+        bleedInches,
+        foldHorizontal ? getRasterRotation(rotationDegreesValue) : 0,
+      );
+      const trim = mapTrimForRotation(
+        pageTrimInches,
+        foldHorizontal ? getRasterRotation(rotationDegreesValue) : 0,
+      );
+      const hasBleed =
+        bleed.left > 0 || bleed.right > 0 || bleed.top > 0 || bleed.bottom > 0;
+      if (hasBleed && trim.width > 0 && trim.height > 0) {
+        drawW =
+          slotWidthPoints * ((trim.width + bleed.left + bleed.right) / trim.width);
+        drawH =
+          slotHeightPoints * ((trim.height + bleed.top + bleed.bottom) / trim.height);
+        drawX = x - slotWidthPoints * (bleed.left / trim.width);
+        drawY = y - slotHeightPoints * (bleed.bottom / trim.height);
+        bleedActive = true;
+      }
     }
 
     const offset = getSlotOffset({
@@ -158,7 +183,8 @@ export async function renderImpositionSide({
     });
     const dx = Number(offset?.dx) || 0;
     const dy = Number(offset?.dy) || 0;
-    const clipToSlot = clipOnOffset && (Math.abs(dx) > 0.01 || Math.abs(dy) > 0.01);
+    const clipToSlot =
+      (clipOnOffset && (Math.abs(dx) > 0.01 || Math.abs(dy) > 0.01)) || bleedActive;
 
     drawPdfImageCreeped(page, asset.image, {
       clipX: x,
@@ -172,4 +198,33 @@ export async function renderImpositionSide({
       clipToSlot,
     });
   }
+}
+
+function mapTrimForRotation(trim, rotationDegrees) {
+  const normalized = ((Number(rotationDegrees) % 360) + 360) % 360;
+  const width = Number(trim?.width) || 0;
+  const height = Number(trim?.height) || 0;
+  if (normalized === 90 || normalized === 270) {
+    return { width: height, height: width };
+  }
+  return { width, height };
+}
+
+function mapBleedForRotation(bleed, rotationDegrees) {
+  const normalized = ((Number(rotationDegrees) % 360) + 360) % 360;
+  const top = Math.max(0, Number(bleed?.top) || 0);
+  const right = Math.max(0, Number(bleed?.right) || 0);
+  const bottom = Math.max(0, Number(bleed?.bottom) || 0);
+  const left = Math.max(0, Number(bleed?.left) || 0);
+
+  if (normalized === 90) {
+    return { top: left, right: top, bottom: right, left: bottom };
+  }
+  if (normalized === 180) {
+    return { top: bottom, right: left, bottom: top, left: right };
+  }
+  if (normalized === 270) {
+    return { top: right, right: bottom, bottom: left, left: top };
+  }
+  return { top, right, bottom, left };
 }

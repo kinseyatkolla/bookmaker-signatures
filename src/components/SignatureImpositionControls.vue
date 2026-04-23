@@ -241,6 +241,81 @@ function updateField(key, value) {
           />
         </label>
       </section>
+      <section class="size-group size-group--gaps">
+        <h3>Image Bleed (in)</h3>
+        <label class="field">
+          <span>Top</span>
+          <input
+            :value="form.bleedTop"
+            type="number"
+            name="imposition-bleed-top"
+            min="0"
+            step="0.01"
+            @input="
+              updateField(
+                'bleedTop',
+                parseNumberInput($event.target.value, form.bleedTop),
+              )
+            "
+          />
+        </label>
+        <label class="field">
+          <span>Right</span>
+          <input
+            :value="form.bleedRight"
+            type="number"
+            name="imposition-bleed-right"
+            min="0"
+            step="0.01"
+            @input="
+              updateField(
+                'bleedRight',
+                parseNumberInput($event.target.value, form.bleedRight),
+              )
+            "
+          />
+        </label>
+        <label class="field">
+          <span>Bottom</span>
+          <input
+            :value="form.bleedBottom"
+            type="number"
+            name="imposition-bleed-bottom"
+            min="0"
+            step="0.01"
+            @input="
+              updateField(
+                'bleedBottom',
+                parseNumberInput($event.target.value, form.bleedBottom),
+              )
+            "
+          />
+        </label>
+        <label class="field">
+          <span>Left</span>
+          <input
+            :value="form.bleedLeft"
+            type="number"
+            name="imposition-bleed-left"
+            min="0"
+            step="0.01"
+            @input="
+              updateField(
+                'bleedLeft',
+                parseNumberInput($event.target.value, form.bleedLeft),
+              )
+            "
+          />
+        </label>
+        <small
+          >0 keeps current behavior. Bleed extends image beyond trim and is clipped
+          to the page slot.</small
+        >
+        <small
+          >Expected source image size: width = page width + left + right bleed;
+          height = page height + top + bottom bleed.</small
+        >
+      </section>
       <section class="size-group size-group--summary">
         <label class="field">
           <span>Number of Pages (used when no images are uploaded)</span>
