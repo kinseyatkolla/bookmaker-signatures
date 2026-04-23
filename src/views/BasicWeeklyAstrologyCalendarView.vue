@@ -11,6 +11,11 @@ import {
   toPoints,
 } from "../imposition/pdfUtils";
 import { renderImpositionSide } from "../imposition/pdfRender";
+import {
+  calibratePreviewScale,
+  loadPreviewPhysicalScale,
+  savePreviewPhysicalScale,
+} from "../imposition/previewCalibration";
 import SignatureImpositionControls from "../components/SignatureImpositionControls.vue";
 import PdfOutputActions from "../components/PdfOutputActions.vue";
 import AstrologyEventsPanel from "../components/AstrologyEventsPanel.vue";
@@ -51,6 +56,10 @@ const PLATE_BACK_ROTATION_DEG = -90;
 const cropMarkOffset = ref(0.08);
 const cropMarkLength = ref(0.18);
 const showCropMarks = ref(false);
+const bleedTop = ref(0);
+const bleedRight = ref(0);
+const bleedBottom = ref(0);
+const bleedLeft = ref(0);
 const horizontalGap = ref(0);
 const verticalGap = ref(0);
 const isGeneratingPdf = ref(false);
@@ -62,6 +71,10 @@ const reusableBlankGridFile = ref(null);
 const rasterizeProgressCurrent = ref(0);
 const rasterizeProgressTotal = ref(0);
 const rasterizeProgressActive = ref(false);
+const PREVIEW_CALIBRATION_REFERENCE_INCHES = 2;
+const previewTrueSizeEnabled = ref(true);
+const previewPhysicalScale = ref(loadPreviewPhysicalScale());
+const previewMeasuredInches = ref(String(PREVIEW_CALIBRATION_REFERENCE_INCHES));
 /** Real DOM blank grid pages inserted only while generating a PDF; cleared in `finally`. */
 const weeklyPdfPaddingSheets = ref([]);
 const astrologyEventsByDate = ref({});
@@ -815,6 +828,25 @@ const pdfOutputHandlers = {
   downloadCombinedPdf,
 };
 
+function applyPreviewCalibration() {
+  const measured = Number(previewMeasuredInches.value);
+  if (!Number.isFinite(measured) || measured <= 0) {
+    return;
+  }
+  previewPhysicalScale.value = calibratePreviewScale({
+    currentScale: previewPhysicalScale.value,
+    expectedInches: PREVIEW_CALIBRATION_REFERENCE_INCHES,
+    measuredInches: measured,
+  });
+  savePreviewPhysicalScale(previewPhysicalScale.value);
+}
+
+function resetPreviewCalibration() {
+  previewPhysicalScale.value = 1;
+  previewMeasuredInches.value = String(PREVIEW_CALIBRATION_REFERENCE_INCHES);
+  savePreviewPhysicalScale(previewPhysicalScale.value);
+}
+
 function triggerDownload(url, fileName) {
   const link = document.createElement("a");
   link.href = url;
@@ -1064,29 +1096,53 @@ async function generatePdfOutput() {
 }
 
 function buildCalendarPagesPreviewStyle() {
-  const w = Math.max(0.1, Number(pageWidth.value) || 2.5);
-  const h = Math.max(0.1, Number(pageHeight.value) || 3.5);
+  const trimW = Math.max(0.1, Number(pageWidth.value) || 2.5);
+  const trimH = Math.max(0.1, Number(pageHeight.value) || 3.5);
+  const bleedT = Math.max(0, Number(bleedTop.value) || 0);
+  const bleedR = Math.max(0, Number(bleedRight.value) || 0);
+  const bleedB = Math.max(0, Number(bleedBottom.value) || 0);
+  const bleedL = Math.max(0, Number(bleedLeft.value) || 0);
+  const totalW = trimW + bleedL + bleedR;
+  const totalH = trimH + bleedT + bleedB;
+  const pageWidthPx = totalW * 96 * Number(previewPhysicalScale.value || 1);
+
   let gridTemplateColumns;
-  if (w >= 8) {
+  if (previewTrueSizeEnabled.value) {
+    gridTemplateColumns = `repeat(auto-fill, minmax(${pageWidthPx}px, ${pageWidthPx}px))`;
+  } else if (totalW >= 8) {
     gridTemplateColumns = "minmax(0, 1fr)";
-  } else if (w >= 4.25) {
+  } else if (totalW >= 4.25) {
     gridTemplateColumns = "repeat(2, minmax(0, 1fr))";
   } else {
     gridTemplateColumns = "repeat(auto-fill, minmax(220px, 1fr))";
   }
+
   return {
-    "--calendar-page-aspect-w": String(w),
-    "--calendar-page-aspect-h": String(h),
+    "--calendar-page-aspect-w": String(totalW),
+    "--calendar-page-aspect-h": String(totalH),
+    "--calendar-page-width-px": `${pageWidthPx}px`,
+    "--calendar-preview-scale": String(previewPhysicalScale.value || 1),
     gridTemplateColumns,
   };
 }
 
-/** Inline grid + aspect vars; kept in a ref and synced via watch so DOM tracks page size inputs. */
 const calendarPagesPreviewStyle = ref(buildCalendarPagesPreviewStyle());
 
-watch([pageWidth, pageHeight], () => {
-  calendarPagesPreviewStyle.value = buildCalendarPagesPreviewStyle();
-});
+watch(
+  [
+    pageWidth,
+    pageHeight,
+    bleedTop,
+    bleedRight,
+    bleedBottom,
+    bleedLeft,
+    previewTrueSizeEnabled,
+    previewPhysicalScale,
+  ],
+  () => {
+    calendarPagesPreviewStyle.value = buildCalendarPagesPreviewStyle();
+  },
+);
 
 const calendarTrimGuideStyle = computed(() => {
   const trimWidth = Math.max(0.01, Number(pageWidth.value) || 0.01);
@@ -1509,7 +1565,48 @@ function toDateInputValue(date) {
           Each raster page is one side of the weekly spread (banner + Mon–Wed or
           Thu–Sun) at the page aspect ratio for PDF generation.
         </p>
-        <div class="calendar-pages-grid" :style="calendarPagesPreviewStyle">
+        <div class="calendar-preview-calibration">
+          <label class="field checkbox-field">
+            <input
+              :checked="previewTrueSizeEnabled"
+              type="checkbox"
+              @change="previewTrueSizeEnabled = $event.target.checked"
+            />
+            <span>Use calibrated true-size preview</span>
+          </label>
+          <div class="calendar-preview-calibration-row">
+            <span
+              class="calendar-calibration-ruler"
+              :style="{ width: `${PREVIEW_CALIBRATION_REFERENCE_INCHES * 96 * previewPhysicalScale}px` }"
+              aria-hidden="true"
+            ></span>
+            <span class="calendar-calibration-ruler-label"
+              >Measure this line (target {{ PREVIEW_CALIBRATION_REFERENCE_INCHES }}")</span
+            >
+          </div>
+          <div class="calendar-preview-calibration-row">
+            <label class="field">
+              <span>Measured length (in)</span>
+              <input
+                v-model="previewMeasuredInches"
+                type="number"
+                min="0.1"
+                step="0.01"
+              />
+            </label>
+            <button type="button" class="secondary-button" @click="applyPreviewCalibration">
+              Calibrate
+            </button>
+            <button type="button" class="secondary-button" @click="resetPreviewCalibration">
+              Reset
+            </button>
+          </div>
+        </div>
+        <div
+          class="calendar-pages-grid"
+          :class="{ 'calendar-pages-grid--true-size': previewTrueSizeEnabled }"
+          :style="calendarPagesPreviewStyle"
+        >
           <article
             v-for="sheet in weeklyRasterPagesForView"
             :key="sheet.key"
@@ -1843,9 +1940,40 @@ function toDateInputValue(date) {
   color: #8a909e;
 }
 
+.calendar-preview-calibration {
+  display: grid;
+  gap: 0.5rem;
+  margin: 0.6rem 0 0.85rem;
+}
+
+.calendar-preview-calibration-row {
+  display: flex;
+  align-items: center;
+  gap: 0.6rem;
+  flex-wrap: wrap;
+}
+
+.calendar-calibration-ruler {
+  display: inline-block;
+  width: calc(2in * var(--calendar-preview-scale, 1));
+  max-width: 100%;
+  border-top: 3px solid #111827;
+}
+
+.calendar-calibration-ruler-label {
+  font-size: 0.8rem;
+  color: #374151;
+}
+
 .calendar-pages-grid {
+  --calendar-preview-scale: 1;
   display: grid;
   gap: 0.75rem;
+}
+
+.calendar-pages-grid--true-size {
+  justify-content: start;
+  overflow-x: auto;
 }
 
 .weekly-raster-sheet {

@@ -106,7 +106,6 @@ body {
 }
 
 .card {
-  width: min(900px, 100%);
   background: #ffffff;
   border: 1px solid #e6e6e7;
   border-radius: 14px;
@@ -190,7 +189,7 @@ h1 {
 
 .size-groups {
   display: grid;
-  grid-template-columns: repeat(3, minmax(0, 1fr));
+  grid-template-columns: repeat(4, minmax(0, 1fr));
   gap: 0.75rem;
 }
 

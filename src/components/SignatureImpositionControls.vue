@@ -23,32 +23,6 @@ function updateField(key, value) {
 
 <template>
   <div class="grid">
-    <div class="field field-full">
-      <span>Signature Calculation Mode</span>
-      <div class="mode-toggle">
-        <label>
-          <input
-            :checked="form.signatureCalcMode === 'sheets-fixed'"
-            type="radio"
-            name="imposition-signature-calc-mode"
-            value="sheets-fixed"
-            @change="updateField('signatureCalcMode', 'sheets-fixed')"
-          />
-          Lock Sheets Per Signature (auto-calculate Number of Signatures)
-        </label>
-        <label>
-          <input
-            :checked="form.signatureCalcMode === 'signatures-fixed'"
-            type="radio"
-            name="imposition-signature-calc-mode"
-            value="signatures-fixed"
-            @change="updateField('signatureCalcMode', 'signatures-fixed')"
-          />
-          Lock Number of Signatures (auto-calculate Sheets Per Signature)
-        </label>
-      </div>
-    </div>
-
     <div class="field field-full size-groups">
       <section class="size-group">
         <h3>Page</h3>
@@ -119,6 +93,32 @@ function updateField(key, value) {
             signature.</small
           >
         </label>
+      </section>
+
+      <section class="size-group">
+        <h3>Signature Calculation Mode</h3>
+        <div class="mode-toggle">
+          <label>
+            <input
+              :checked="form.signatureCalcMode === 'sheets-fixed'"
+              type="radio"
+              name="imposition-signature-calc-mode"
+              value="sheets-fixed"
+              @change="updateField('signatureCalcMode', 'sheets-fixed')"
+            />
+            Lock Sheets Per Signature (auto-calculate Number of Signatures)
+          </label>
+          <label>
+            <input
+              :checked="form.signatureCalcMode === 'signatures-fixed'"
+              type="radio"
+              name="imposition-signature-calc-mode"
+              value="signatures-fixed"
+              @change="updateField('signatureCalcMode', 'signatures-fixed')"
+            />
+            Lock Number of Signatures (auto-calculate Sheets Per Signature)
+          </label>
+        </div>
       </section>
 
       <section class="size-group">
