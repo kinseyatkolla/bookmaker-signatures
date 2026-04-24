@@ -16,6 +16,10 @@ import {
   loadPreviewPhysicalScale,
   savePreviewPhysicalScale,
 } from "../imposition/previewCalibration";
+import {
+  buildDomPreviewContentFrameStyle,
+  DEFAULT_DOM_PREVIEW_MARGIN_IN,
+} from "../imposition/domPreviewMargins";
 import SignatureImpositionControls from "../components/SignatureImpositionControls.vue";
 import PdfOutputActions from "../components/PdfOutputActions.vue";
 import AstrologyEventsPanel from "../components/AstrologyEventsPanel.vue";
@@ -99,6 +103,10 @@ const bleedBottom = ref(0);
 const bleedLeft = ref(0.25);
 const horizontalGap = ref(props.defaultHorizontalGap);
 const verticalGap = ref(props.defaultVerticalGap);
+const domPreviewMarginTop = ref(DEFAULT_DOM_PREVIEW_MARGIN_IN);
+const domPreviewMarginRight = ref(DEFAULT_DOM_PREVIEW_MARGIN_IN);
+const domPreviewMarginBottom = ref(DEFAULT_DOM_PREVIEW_MARGIN_IN);
+const domPreviewMarginLeft = ref(DEFAULT_DOM_PREVIEW_MARGIN_IN);
 const isGeneratingPdf = ref(false);
 const pdfError = ref("");
 const combinedPdfUrl = ref("");
@@ -999,6 +1007,21 @@ const calendarTrimGuideStyle = computed(() => {
   };
 });
 
+const contentFrameBoxStyle = computed(() =>
+  buildDomPreviewContentFrameStyle({
+    pageWidth: pageWidth.value,
+    pageHeight: pageHeight.value,
+    bleedTop: bleedTop.value,
+    bleedRight: bleedRight.value,
+    bleedBottom: bleedBottom.value,
+    bleedLeft: bleedLeft.value,
+    marginTop: domPreviewMarginTop.value,
+    marginRight: domPreviewMarginRight.value,
+    marginBottom: domPreviewMarginBottom.value,
+    marginLeft: domPreviewMarginLeft.value,
+  }),
+);
+
 const astrologyTimeframeLabel = computed(() => {
   const start = parseDateInput(startDate.value);
   const end = parseDateInput(endDate.value);
@@ -1053,6 +1076,10 @@ const impositionControlForm = computed(() => ({
   bleedLeft: bleedLeft.value,
   numberOfPages: numberOfPages.value,
   outputFoldAxis: outputFoldAxis.value,
+  domPreviewMarginTop: domPreviewMarginTop.value,
+  domPreviewMarginRight: domPreviewMarginRight.value,
+  domPreviewMarginBottom: domPreviewMarginBottom.value,
+  domPreviewMarginLeft: domPreviewMarginLeft.value,
 }));
 
 const impositionControlSummary = computed(() => ({
@@ -1423,6 +1450,18 @@ function onImpositionControlFieldUpdate({ key, value }) {
     case "bleedLeft":
       bleedLeft.value = Math.max(0, Number(value) || 0);
       break;
+    case "domPreviewMarginTop":
+      domPreviewMarginTop.value = Math.max(0, Number(value) || 0);
+      break;
+    case "domPreviewMarginRight":
+      domPreviewMarginRight.value = Math.max(0, Number(value) || 0);
+      break;
+    case "domPreviewMarginBottom":
+      domPreviewMarginBottom.value = Math.max(0, Number(value) || 0);
+      break;
+    case "domPreviewMarginLeft":
+      domPreviewMarginLeft.value = Math.max(0, Number(value) || 0);
+      break;
     case "outputFoldAxis":
       outputFoldAxis.value = value;
       break;
@@ -1504,6 +1543,7 @@ function toDateInputValue(date) {
         :summary="impositionControlSummary"
         :layout="impositionControlLayout"
         :handlers="impositionControlHandlers"
+        :show-dom-preview-margins="true"
         @update:field="onImpositionControlFieldUpdate"
       />
 
@@ -1582,13 +1622,14 @@ function toDateInputValue(date) {
               page.kind === 'day'
                 ? 'calendar-page--day'
                 : 'calendar-page--cover',
-              props.isMoonCalendarMode && page.kind === 'day'
-                ? 'calendar-day-card--moon-mode'
-                : '',
               rasterizeProgressActive ? 'calendar-day-card--rasterizing' : '',
             ]"
           >
             <div class="calendar-trim-guide" aria-hidden="true" />
+            <div
+              class="calendar-content-frame"
+              :style="contentFrameBoxStyle"
+            >
             <section
               v-if="page.kind === 'cover-front'"
               :class="[
@@ -2024,6 +2065,7 @@ function toDateInputValue(date) {
                 </span>
               </footer>
             </template>
+            </div>
           </article>
         </div>
       </section>
@@ -2102,20 +2144,13 @@ function toDateInputValue(date) {
   border: 1px solid #d4d7df;
   border-radius: 10px;
   background: #ffffff;
-  padding: 0.85rem calc(1.35rem + 0.75in);
+  padding: 0;
   aspect-ratio: var(--calendar-page-aspect-w) / var(--calendar-page-aspect-h);
   height: auto;
-  display: flex;
-  flex-direction: column;
   min-height: 0;
   overflow: visible;
   box-sizing: border-box;
   font-family: Inter, "Avenir Next", Avenir, "Segoe UI", Roboto, sans-serif;
-}
-
-.calendar-day-card--moon-mode {
-  padding-left: calc(1.45rem + 0.75in);
-  padding-right: calc(1.45rem + 0.75in);
 }
 
 .calendar-trim-guide {
@@ -2142,10 +2177,6 @@ function toDateInputValue(date) {
   box-shadow: none;
   border-radius: 0;
   overflow: hidden;
-}
-
-.calendar-page--cover {
-  padding: 0.75rem calc(1.25rem + 0.75in);
 }
 
 .calendar-cover-page {

@@ -95,10 +95,14 @@ async function fetchChart(apiBaseUrl, utcDate, coords) {
     throw new Error("chart missing moon/sun position");
   }
 
+  const allPlanets = payload?.data?.planets;
   return {
     tithi: calculateTithi(moon.longitude, sun.longitude),
     sunSign: sun.zodiacSignName || "",
     moonSign: moon.zodiacSignName || "",
+    /** Full `data.planets` from the same chart (used at local noon for daily ephemeris strip). */
+    planetsSnapshot:
+      allPlanets && typeof allPlanets === "object" ? allPlanets : null,
   };
 }
 
@@ -151,11 +155,13 @@ export async function buildMoonTithisForDateRange(
   const dayTithiMap = {};
   const dayTithiHourCounts = {};
   const daySunMoonByDateKey = {};
+  const dayPlanetsAtNoonByDateKey = {};
   const dayTithiTransitions = {};
   keys.forEach((dateKey) => {
     dayTithiMap[dateKey] = [];
     dayTithiHourCounts[dateKey] = {};
     daySunMoonByDateKey[dateKey] = null;
+    dayPlanetsAtNoonByDateKey[dateKey] = null;
     dayTithiTransitions[dateKey] = [];
   });
 
@@ -167,7 +173,13 @@ export async function buildMoonTithisForDateRange(
           const result = await fetchChart(apiBaseUrl, sample.utc, coords);
           return { ...sample, ...result };
         } catch {
-          return { ...sample, tithi: null, sunSign: "", moonSign: "" };
+          return {
+            ...sample,
+            tithi: null,
+            sunSign: "",
+            moonSign: "",
+            planetsSnapshot: null,
+          };
         }
       }),
     );
@@ -192,6 +204,9 @@ export async function buildMoonTithisForDateRange(
           sunSign: item.sunSign,
           moonSign: item.moonSign,
         };
+        if (item.planetsSnapshot && typeof item.planetsSnapshot === "object") {
+          dayPlanetsAtNoonByDateKey[item.dateKey] = item.planetsSnapshot;
+        }
       }
     });
   }
@@ -213,6 +228,7 @@ export async function buildMoonTithisForDateRange(
       tithiNumbers: sequence,
       hourCounts,
       sunMoon: daySunMoonByDateKey[dateKey],
+      planetsAtNoon: dayPlanetsAtNoonByDateKey[dateKey] ?? null,
       tithiTransitions: dayTithiTransitions[dateKey] ?? [],
     };
   });

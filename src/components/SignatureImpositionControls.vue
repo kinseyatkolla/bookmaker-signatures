@@ -1,11 +1,14 @@
 <script setup>
 import { toRefs } from "vue";
+import { DEFAULT_DOM_PREVIEW_MARGIN_IN } from "../imposition/domPreviewMargins";
 
 const props = defineProps({
   form: { type: Object, required: true },
   summary: { type: Object, required: true },
   layout: { type: Object, required: true },
   handlers: { type: Object, required: true },
+  /** When true, show DOM preview margin fields (calendar pages only). */
+  showDomPreviewMargins: { type: Boolean, default: false },
 });
 const { form, summary, layout, handlers } = toRefs(props);
 
@@ -193,6 +196,95 @@ function updateField(key, value) {
             "
           />
         </label>
+        <div
+          v-if="showDomPreviewMargins"
+          class="imposition-dom-preview-margins"
+        >
+          <h4>DOM preview margins (in)</h4>
+          <p class="imposition-dom-preview-margins-hint">
+            Extra inset inside the trim for the on-screen preview only. Main content
+            is laid out inside a frame that matches the blue dashed box (bleed plus
+            these values from the page edge). Does not change PDF imposition math.
+          </p>
+          <div class="imposition-dom-preview-margins-grid">
+            <label class="field">
+              <span>Top</span>
+              <input
+                :value="form.domPreviewMarginTop ?? DEFAULT_DOM_PREVIEW_MARGIN_IN"
+                type="number"
+                name="imposition-dom-preview-margin-top"
+                min="0"
+                step="0.01"
+                @input="
+                  updateField(
+                    'domPreviewMarginTop',
+                    parseNumberInput(
+                      $event.target.value,
+                      form.domPreviewMarginTop ?? DEFAULT_DOM_PREVIEW_MARGIN_IN,
+                    ),
+                  )
+                "
+              />
+            </label>
+            <label class="field">
+              <span>Right</span>
+              <input
+                :value="form.domPreviewMarginRight ?? DEFAULT_DOM_PREVIEW_MARGIN_IN"
+                type="number"
+                name="imposition-dom-preview-margin-right"
+                min="0"
+                step="0.01"
+                @input="
+                  updateField(
+                    'domPreviewMarginRight',
+                    parseNumberInput(
+                      $event.target.value,
+                      form.domPreviewMarginRight ?? DEFAULT_DOM_PREVIEW_MARGIN_IN,
+                    ),
+                  )
+                "
+              />
+            </label>
+            <label class="field">
+              <span>Bottom</span>
+              <input
+                :value="form.domPreviewMarginBottom ?? DEFAULT_DOM_PREVIEW_MARGIN_IN"
+                type="number"
+                name="imposition-dom-preview-margin-bottom"
+                min="0"
+                step="0.01"
+                @input="
+                  updateField(
+                    'domPreviewMarginBottom',
+                    parseNumberInput(
+                      $event.target.value,
+                      form.domPreviewMarginBottom ?? DEFAULT_DOM_PREVIEW_MARGIN_IN,
+                    ),
+                  )
+                "
+              />
+            </label>
+            <label class="field">
+              <span>Left</span>
+              <input
+                :value="form.domPreviewMarginLeft ?? DEFAULT_DOM_PREVIEW_MARGIN_IN"
+                type="number"
+                name="imposition-dom-preview-margin-left"
+                min="0"
+                step="0.01"
+                @input="
+                  updateField(
+                    'domPreviewMarginLeft',
+                    parseNumberInput(
+                      $event.target.value,
+                      form.domPreviewMarginLeft ?? DEFAULT_DOM_PREVIEW_MARGIN_IN,
+                    ),
+                  )
+                "
+              />
+            </label>
+          </div>
+        </div>
       </section>
       <section class="size-group size-group--gaps">
         <h3>Crop marks</h3>

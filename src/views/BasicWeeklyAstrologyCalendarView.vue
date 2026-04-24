@@ -16,6 +16,10 @@ import {
   loadPreviewPhysicalScale,
   savePreviewPhysicalScale,
 } from "../imposition/previewCalibration";
+import {
+  buildDomPreviewContentFrameStyle,
+  DEFAULT_DOM_PREVIEW_MARGIN_IN,
+} from "../imposition/domPreviewMargins";
 import SignatureImpositionControls from "../components/SignatureImpositionControls.vue";
 import PdfOutputActions from "../components/PdfOutputActions.vue";
 import AstrologyEventsPanel from "../components/AstrologyEventsPanel.vue";
@@ -62,6 +66,10 @@ const bleedBottom = ref(0);
 const bleedLeft = ref(0.25);
 const horizontalGap = ref(0);
 const verticalGap = ref(0);
+const domPreviewMarginTop = ref(DEFAULT_DOM_PREVIEW_MARGIN_IN);
+const domPreviewMarginRight = ref(DEFAULT_DOM_PREVIEW_MARGIN_IN);
+const domPreviewMarginBottom = ref(DEFAULT_DOM_PREVIEW_MARGIN_IN);
+const domPreviewMarginLeft = ref(DEFAULT_DOM_PREVIEW_MARGIN_IN);
 const isGeneratingPdf = ref(false);
 const pdfError = ref("");
 const combinedPdfUrl = ref("");
@@ -1161,6 +1169,21 @@ const calendarTrimGuideStyle = computed(() => {
   };
 });
 
+const contentFrameBoxStyle = computed(() =>
+  buildDomPreviewContentFrameStyle({
+    pageWidth: pageWidth.value,
+    pageHeight: pageHeight.value,
+    bleedTop: bleedTop.value,
+    bleedRight: bleedRight.value,
+    bleedBottom: bleedBottom.value,
+    bleedLeft: bleedLeft.value,
+    marginTop: domPreviewMarginTop.value,
+    marginRight: domPreviewMarginRight.value,
+    marginBottom: domPreviewMarginBottom.value,
+    marginLeft: domPreviewMarginLeft.value,
+  }),
+);
+
 const astrologyTimeframeLabel = computed(() => {
   const start = parseDateInput(startDate.value);
   const end = parseDateInput(endDate.value);
@@ -1215,6 +1238,10 @@ const impositionControlForm = computed(() => ({
   bleedLeft: bleedLeft.value,
   numberOfPages: numberOfPages.value,
   outputFoldAxis: outputFoldAxis.value,
+  domPreviewMarginTop: domPreviewMarginTop.value,
+  domPreviewMarginRight: domPreviewMarginRight.value,
+  domPreviewMarginBottom: domPreviewMarginBottom.value,
+  domPreviewMarginLeft: domPreviewMarginLeft.value,
 }));
 
 const impositionControlSummary = computed(() => ({
@@ -1459,6 +1486,18 @@ function onImpositionControlFieldUpdate({ key, value }) {
     case "bleedLeft":
       bleedLeft.value = Math.max(0, Number(value) || 0);
       break;
+    case "domPreviewMarginTop":
+      domPreviewMarginTop.value = Math.max(0, Number(value) || 0);
+      break;
+    case "domPreviewMarginRight":
+      domPreviewMarginRight.value = Math.max(0, Number(value) || 0);
+      break;
+    case "domPreviewMarginBottom":
+      domPreviewMarginBottom.value = Math.max(0, Number(value) || 0);
+      break;
+    case "domPreviewMarginLeft":
+      domPreviewMarginLeft.value = Math.max(0, Number(value) || 0);
+      break;
     case "outputFoldAxis":
       outputFoldAxis.value = value;
       break;
@@ -1540,6 +1579,7 @@ function toDateInputValue(date) {
         :summary="impositionControlSummary"
         :layout="impositionControlLayout"
         :handlers="impositionControlHandlers"
+        :show-dom-preview-margins="true"
         @update:field="onImpositionControlFieldUpdate"
       />
 
@@ -1617,10 +1657,18 @@ function toDateInputValue(date) {
               sheet.kind === 'week-sheet' || sheet.kind === 'padding-blank-grid'
                 ? ''
                 : 'calendar-page--cover',
+              sheet.kind === 'padding-blank-grid' ||
+              (sheet.kind === 'week-sheet' && sheet.isTotallyBlank)
+                ? 'weekly-raster-sheet--pattern-bleed'
+                : '',
               rasterizeProgressActive ? 'weekly-raster-sheet--rasterizing' : '',
             ]"
           >
             <div class="calendar-trim-guide" aria-hidden="true" />
+            <div
+              class="calendar-content-frame"
+              :style="contentFrameBoxStyle"
+            >
             <section
               v-if="sheet.kind === 'cover-front'"
               :class="[
@@ -1896,6 +1944,7 @@ function toDateInputValue(date) {
                 </div>
               </div>
             </div>
+            </div>
           </article>
         </div>
         <article
@@ -1983,11 +2032,9 @@ function toDateInputValue(date) {
   border: 1px solid #d4d7df;
   border-radius: 10px;
   background: #ffffff;
-  padding: 0.25in 0.6in;
+  padding: 0;
   aspect-ratio: var(--calendar-page-aspect-w) / var(--calendar-page-aspect-h);
   height: auto;
-  display: flex;
-  flex-direction: column;
   min-height: 0;
   overflow: visible;
   box-sizing: border-box;
@@ -2017,12 +2064,12 @@ function toDateInputValue(date) {
   overflow: hidden;
 }
 
-.weekly-raster-sheet--rasterizing .calendar-trim-guide {
-  display: none;
+.weekly-raster-sheet--rasterizing.weekly-raster-sheet--pattern-bleed::before {
+  border-radius: 0;
 }
 
-.calendar-page--cover {
-  padding: 0.75rem 1.25rem;
+.weekly-raster-sheet--rasterizing .calendar-trim-guide {
+  display: none;
 }
 
 .calendar-cover-page {
@@ -2107,6 +2154,28 @@ function toDateInputValue(date) {
   grid-template-rows: 1fr 1fr;
 }
 
+.weekly-raster-sheet--pattern-bleed::before {
+  content: "";
+  position: absolute;
+  inset: 0;
+  z-index: 0;
+  pointer-events: none;
+  border-radius: 10px;
+  background-color: #ffffff;
+  background-image:
+    linear-gradient(to right, #f2f1e8 1px, transparent 1px),
+    linear-gradient(to bottom, #f2f1e8 1px, transparent 1px);
+  background-size: 0.125in 0.125in;
+}
+
+.weekly-raster-sheet .calendar-content-frame > .weekly-grid {
+  position: relative;
+  z-index: 1;
+  flex: 1;
+  min-height: 0;
+  width: 100%;
+}
+
 .weekly-blank-page {
   grid-column: 1 / -1;
   grid-row: 1 / -1;
@@ -2117,6 +2186,10 @@ function toDateInputValue(date) {
     linear-gradient(to right, #f2f1e8 1px, transparent 1px),
     linear-gradient(to bottom, #f2f1e8 1px, transparent 1px);
   background-size: 0.125in 0.125in;
+}
+
+.weekly-raster-sheet--pattern-bleed .weekly-blank-page {
+  background: none;
 }
 
 .weekly-raster-sheet--prototype {

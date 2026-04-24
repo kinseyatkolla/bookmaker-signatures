@@ -16,6 +16,10 @@ import {
   loadPreviewPhysicalScale,
   savePreviewPhysicalScale,
 } from "../imposition/previewCalibration";
+import {
+  buildDomPreviewContentFrameStyle,
+  DEFAULT_DOM_PREVIEW_MARGIN_IN,
+} from "../imposition/domPreviewMargins";
 import SignatureImpositionControls from "../components/SignatureImpositionControls.vue";
 import PdfOutputActions from "../components/PdfOutputActions.vue";
 
@@ -51,6 +55,10 @@ const bleedBottom = ref(0);
 const bleedLeft = ref(0.25);
 const horizontalGap = ref(0.08);
 const verticalGap = ref(0.08);
+const domPreviewMarginTop = ref(DEFAULT_DOM_PREVIEW_MARGIN_IN);
+const domPreviewMarginRight = ref(DEFAULT_DOM_PREVIEW_MARGIN_IN);
+const domPreviewMarginBottom = ref(DEFAULT_DOM_PREVIEW_MARGIN_IN);
+const domPreviewMarginLeft = ref(DEFAULT_DOM_PREVIEW_MARGIN_IN);
 const isGeneratingPdf = ref(false);
 const pdfError = ref("");
 const combinedPdfUrl = ref("");
@@ -760,6 +768,21 @@ const calendarTrimGuideStyle = computed(() => {
   };
 });
 
+const contentFrameBoxStyle = computed(() =>
+  buildDomPreviewContentFrameStyle({
+    pageWidth: pageWidth.value,
+    pageHeight: pageHeight.value,
+    bleedTop: bleedTop.value,
+    bleedRight: bleedRight.value,
+    bleedBottom: bleedBottom.value,
+    bleedLeft: bleedLeft.value,
+    marginTop: domPreviewMarginTop.value,
+    marginRight: domPreviewMarginRight.value,
+    marginBottom: domPreviewMarginBottom.value,
+    marginLeft: domPreviewMarginLeft.value,
+  }),
+);
+
 const impositionControlForm = computed(() => ({
   signatureCalcMode: signatureCalcMode.value,
   pageWidth: pageWidth.value,
@@ -779,6 +802,10 @@ const impositionControlForm = computed(() => ({
   bleedLeft: bleedLeft.value,
   numberOfPages: numberOfPages.value,
   outputFoldAxis: outputFoldAxis.value,
+  domPreviewMarginTop: domPreviewMarginTop.value,
+  domPreviewMarginRight: domPreviewMarginRight.value,
+  domPreviewMarginBottom: domPreviewMarginBottom.value,
+  domPreviewMarginLeft: domPreviewMarginLeft.value,
 }));
 
 const impositionControlSummary = computed(() => ({
@@ -854,6 +881,18 @@ function onImpositionControlFieldUpdate({ key, value }) {
     case "bleedLeft":
       bleedLeft.value = Math.max(0, Number(value) || 0);
       break;
+    case "domPreviewMarginTop":
+      domPreviewMarginTop.value = Math.max(0, Number(value) || 0);
+      break;
+    case "domPreviewMarginRight":
+      domPreviewMarginRight.value = Math.max(0, Number(value) || 0);
+      break;
+    case "domPreviewMarginBottom":
+      domPreviewMarginBottom.value = Math.max(0, Number(value) || 0);
+      break;
+    case "domPreviewMarginLeft":
+      domPreviewMarginLeft.value = Math.max(0, Number(value) || 0);
+      break;
     case "outputFoldAxis":
       outputFoldAxis.value = value;
       break;
@@ -923,6 +962,7 @@ function toDateInputValue(date) {
         :summary="impositionControlSummary"
         :layout="impositionControlLayout"
         :handlers="impositionControlHandlers"
+        :show-dom-preview-margins="true"
         @update:field="onImpositionControlFieldUpdate"
       />
 
@@ -986,9 +1026,14 @@ function toDateInputValue(date) {
             ]"
           >
             <div class="calendar-trim-guide" aria-hidden="true" />
-            <p class="calendar-day-number">{{ page.dayNumber }}</p>
-            <p class="calendar-day-label">{{ page.fullDateLabel }}</p>
-            <p class="calendar-day-iso">{{ page.isoStamp }}</p>
+            <div
+              class="calendar-content-frame"
+              :style="contentFrameBoxStyle"
+            >
+              <p class="calendar-day-number">{{ page.dayNumber }}</p>
+              <p class="calendar-day-label">{{ page.fullDateLabel }}</p>
+              <p class="calendar-day-iso">{{ page.isoStamp }}</p>
+            </div>
           </article>
         </div>
       </section>
@@ -1056,7 +1101,7 @@ function toDateInputValue(date) {
   border: 1px solid #d4d7df;
   border-radius: 10px;
   background: #ffffff;
-  padding: 0.85rem 1.35rem;
+  padding: 0;
   aspect-ratio: var(--calendar-page-aspect-w) / var(--calendar-page-aspect-h);
   height: auto;
   display: flex;

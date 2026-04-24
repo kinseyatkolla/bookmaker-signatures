@@ -522,3 +522,87 @@ hr {
     height: 420px;
   }
 }
+
+/* DOM preview margins block (SignatureImpositionControls, calendar routes) */
+.imposition-dom-preview-margins {
+  margin-top: 0.75rem;
+  padding-top: 0.65rem;
+  border-top: 1px solid #e2e2e5;
+}
+
+.imposition-dom-preview-margins h4 {
+  margin: 0 0 0.35rem;
+  font-size: 0.88rem;
+  font-weight: 700;
+  color: #31313a;
+}
+
+.imposition-dom-preview-margins-hint {
+  margin: 0 0 0.5rem;
+  font-size: 0.78rem;
+  line-height: 1.35;
+  color: #5b5f69;
+}
+
+.imposition-dom-preview-margins-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 0.5rem 0.75rem;
+}
+
+/* Inner content edge for optional DOM preview margins (blue); trim stays pink */
+.calendar-dom-margin-guide {
+  position: absolute;
+  z-index: 40;
+  border: 1.5px dashed #2563eb;
+  border-radius: 0;
+  pointer-events: none;
+  box-sizing: border-box;
+}
+
+/* Live preview: main content sits inside this box (same insets as blue guide); reflows with margin controls */
+.calendar-content-frame {
+  position: absolute;
+  z-index: 10;
+  display: flex;
+  flex-direction: column;
+  align-items: stretch;
+  min-width: 0;
+  min-height: 0;
+  overflow: auto;
+  box-sizing: border-box;
+  border: 1.5px dashed #2563eb;
+  border-radius: 0;
+  pointer-events: auto;
+  container-type: inline-size;
+  container-name: calendar-page;
+}
+
+/* Titles, events, and body text stay inside the content frame */
+.calendar-content-frame .event-list,
+.calendar-content-frame .day-page-header,
+.calendar-content-frame .calendar-cover-title,
+.calendar-content-frame .calendar-cover-line {
+  min-width: 0;
+  max-width: 100%;
+  box-sizing: border-box;
+}
+
+.weekly-raster-sheet .calendar-content-frame .event-list,
+.weekly-raster-sheet .calendar-content-frame .day-page-header,
+.weekly-raster-sheet .calendar-content-frame .calendar-cover-title,
+.weekly-raster-sheet .calendar-content-frame .calendar-cover-line {
+  min-width: 0;
+  max-width: 100%;
+  box-sizing: border-box;
+}
+
+.calendar-day-card--rasterizing .calendar-dom-margin-guide,
+.weekly-raster-sheet--rasterizing .calendar-dom-margin-guide {
+  display: none;
+}
+
+.calendar-day-card--rasterizing .calendar-content-frame,
+.weekly-raster-sheet--rasterizing .calendar-content-frame {
+  border-color: transparent;
+}

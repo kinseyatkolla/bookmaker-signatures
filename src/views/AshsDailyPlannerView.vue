@@ -16,6 +16,10 @@ import {
   loadPreviewPhysicalScale,
   savePreviewPhysicalScale,
 } from "../imposition/previewCalibration";
+import {
+  buildDomPreviewContentFrameStyle,
+  DEFAULT_DOM_PREVIEW_MARGIN_IN,
+} from "../imposition/domPreviewMargins";
 import SignatureImpositionControls from "../components/SignatureImpositionControls.vue";
 import PdfOutputActions from "../components/PdfOutputActions.vue";
 import AstrologyEventsPanel from "../components/AstrologyEventsPanel.vue";
@@ -27,7 +31,10 @@ import {
   getZodiacKeysFromNames,
   getZodiacUnicodeFallback,
 } from "../astrology/physisSymbolMap";
-import { buildNatalChartPreviewRows } from "../astrology/natalChartPreview";
+import {
+  buildNatalChartPreviewRows,
+  NATAL_CHART_PREVIEW_KEYS,
+} from "../astrology/natalChartPreview";
 
 const props = defineProps({
   pageTitle: {
@@ -91,12 +98,16 @@ const PLATE_BACK_ROTATION_DEG = -90;
 const cropMarkOffset = ref(0.08);
 const cropMarkLength = ref(0.18);
 const showCropMarks = ref(true);
-const bleedTop = ref(0);
+const bleedTop = ref(0.25);
 const bleedRight = ref(0.25);
-const bleedBottom = ref(0);
+const bleedBottom = ref(0.25);
 const bleedLeft = ref(0.25);
 const horizontalGap = ref(props.defaultHorizontalGap);
 const verticalGap = ref(props.defaultVerticalGap);
+const domPreviewMarginTop = ref(DEFAULT_DOM_PREVIEW_MARGIN_IN);
+const domPreviewMarginRight = ref(DEFAULT_DOM_PREVIEW_MARGIN_IN);
+const domPreviewMarginBottom = ref(DEFAULT_DOM_PREVIEW_MARGIN_IN);
+const domPreviewMarginLeft = ref(DEFAULT_DOM_PREVIEW_MARGIN_IN);
 const isGeneratingPdf = ref(false);
 const pdfError = ref("");
 const combinedPdfUrl = ref("");
@@ -266,6 +277,17 @@ const calendarRasterPages = computed(() => {
     String(coverTitleOverride.value || "").trim() ||
     formatTimeframeCoverTitle(start, end);
 
+  const interleavedDayPages = dayCalendarPages.value.flatMap((p, i) => [
+    {
+      key: `blank-grid-${p.key}`,
+      kind: "padding-blank-grid",
+      showNatalOnGrid: i === 0,
+      natalLine: i === 0 ? natalLine : "",
+      nextDayKey: p.key,
+    },
+    { ...p, kind: "day" },
+  ]);
+
   return [
     {
       key: "cover-front",
@@ -273,12 +295,7 @@ const calendarRasterPages = computed(() => {
       coverTitle,
       locationLine,
     },
-    {
-      key: "natal-transits",
-      kind: "natal-transits",
-      natalLine,
-    },
-    ...dayCalendarPages.value.map((page) => ({ ...page, kind: "day" })),
+    ...interleavedDayPages,
     {
       key: "cover-back",
       kind: "cover-back",
@@ -1007,6 +1024,21 @@ const calendarTrimGuideStyle = computed(() => {
   };
 });
 
+const contentFrameBoxStyle = computed(() =>
+  buildDomPreviewContentFrameStyle({
+    pageWidth: pageWidth.value,
+    pageHeight: pageHeight.value,
+    bleedTop: bleedTop.value,
+    bleedRight: bleedRight.value,
+    bleedBottom: bleedBottom.value,
+    bleedLeft: bleedLeft.value,
+    marginTop: domPreviewMarginTop.value,
+    marginRight: domPreviewMarginRight.value,
+    marginBottom: domPreviewMarginBottom.value,
+    marginLeft: domPreviewMarginLeft.value,
+  }),
+);
+
 const astrologyTimeframeLabel = computed(() => {
   const start = parseDateInput(startDate.value);
   const end = parseDateInput(endDate.value);
@@ -1061,6 +1093,10 @@ const impositionControlForm = computed(() => ({
   bleedLeft: bleedLeft.value,
   numberOfPages: numberOfPages.value,
   outputFoldAxis: outputFoldAxis.value,
+  domPreviewMarginTop: domPreviewMarginTop.value,
+  domPreviewMarginRight: domPreviewMarginRight.value,
+  domPreviewMarginBottom: domPreviewMarginBottom.value,
+  domPreviewMarginLeft: domPreviewMarginLeft.value,
 }));
 
 const impositionControlSummary = computed(() => ({
@@ -1122,8 +1158,47 @@ function dayTithiDetails(dateKey) {
       tithiNumbers: [],
       hourCounts: {},
       tithiTransitions: [],
+      planetsAtNoon: null,
     }
   );
+}
+
+const PLANET_API_KEY_TO_DISPLAY_NAME = {
+  sun: "Sun",
+  moon: "Moon",
+  mercury: "Mercury",
+  venus: "Venus",
+  mars: "Mars",
+  jupiter: "Jupiter",
+  saturn: "Saturn",
+  uranus: "Uranus",
+  neptune: "Neptune",
+  pluto: "Pluto",
+};
+
+/** All planets in natal order for the pre-grid column; data from /astrology/chart at local noon. */
+function plannerNoonPlanetRows(dateKey) {
+  const raw = dayTithiDetails(dateKey).planetsAtNoon;
+  if (!raw || typeof raw !== "object") return null;
+  const rows = [];
+  for (const key of NATAL_CHART_PREVIEW_KEYS) {
+    const p = raw[key];
+    if (!p?.zodiacSignName) continue;
+    const sign = p.zodiacSignName;
+    const name = PLANET_API_KEY_TO_DISPLAY_NAME[key];
+    if (!name) continue;
+    const physisPlanet = planetKeys[name] || "";
+    const fbPlanet = planetUnicodeFallback[key] || "";
+    rows.push({
+      id: key,
+      planetKey: physisPlanet,
+      planetUnicode: !physisPlanet && fbPlanet ? fbPlanet : "",
+      zodiacKey: zodiacKeys[sign] || "",
+      zodiacUnicode: zodiacUnicodeFallback[sign] || "",
+      elementClass: signElementClass(sign),
+    });
+  }
+  return rows.length ? rows : null;
 }
 
 function formatTithiSummary(tithiNumber, hourCounts) {
@@ -1419,6 +1494,18 @@ function onImpositionControlFieldUpdate({ key, value }) {
     case "bleedLeft":
       bleedLeft.value = Math.max(0, Number(value) || 0);
       break;
+    case "domPreviewMarginTop":
+      domPreviewMarginTop.value = Math.max(0, Number(value) || 0);
+      break;
+    case "domPreviewMarginRight":
+      domPreviewMarginRight.value = Math.max(0, Number(value) || 0);
+      break;
+    case "domPreviewMarginBottom":
+      domPreviewMarginBottom.value = Math.max(0, Number(value) || 0);
+      break;
+    case "domPreviewMarginLeft":
+      domPreviewMarginLeft.value = Math.max(0, Number(value) || 0);
+      break;
     case "outputFoldAxis":
       outputFoldAxis.value = value;
       break;
@@ -1520,6 +1607,7 @@ const ashCoverProgressRanges = computed(() => {
         :summary="impositionControlSummary"
         :layout="impositionControlLayout"
         :handlers="impositionControlHandlers"
+        :show-dom-preview-margins="true"
         @update:field="onImpositionControlFieldUpdate"
       />
 
@@ -1590,7 +1678,7 @@ const ashCoverProgressRanges = computed(() => {
           :style="calendarPagesPreviewStyle"
         >
           <article
-            v-for="(page, pageIndex) in calendarRasterPages"
+            v-for="page in calendarRasterPages"
             :key="page.key"
             :ref="(el) => setDateCardRef(page.key, el)"
             :style="calendarTrimGuideStyle"
@@ -1598,15 +1686,22 @@ const ashCoverProgressRanges = computed(() => {
               'calendar-day-card',
               page.kind === 'day'
                 ? 'calendar-page--day'
-                : 'calendar-page--cover',
-              props.isMoonCalendarMode && page.kind === 'day'
-                ? 'calendar-day-card--moon-mode'
-                : '',
-              pageIndex > 0 ? 'calendar-day-card--double-lr-padding' : '',
+                : page.kind === 'padding-blank-grid'
+                  ? 'calendar-page--blank-grid'
+                  : 'calendar-page--cover',
               rasterizeProgressActive ? 'calendar-day-card--rasterizing' : '',
             ]"
           >
             <div class="calendar-trim-guide" aria-hidden="true" />
+            <div
+              v-if="page.kind === 'padding-blank-grid'"
+              class="planner-bleed-grid-page"
+              aria-hidden="true"
+            />
+            <div
+              class="calendar-content-frame"
+              :style="contentFrameBoxStyle"
+            >
             <section
               v-if="page.kind === 'cover-front'"
               :class="[
@@ -1639,43 +1734,61 @@ const ashCoverProgressRanges = computed(() => {
                 <p class="calendar-cover-line">{{ page.locationLine }}</p>
               </div>
             </section>
-            <section
-              v-else-if="page.kind === 'natal-transits'"
-              :class="[
-                'calendar-cover-page',
-                'calendar-cover-page--natal-transits',
-                rasterizeProgressActive
-                  ? 'calendar-cover-page--rasterizing'
-                  : '',
-              ]"
-            >
-              <div class="calendar-natal-transits-inner">
-                <p
-                  v-if="page.natalLine"
-                  class="calendar-cover-line calendar-cover-line--natal-transits calendar-natal-line"
-                >
-                  {{ page.natalLine }}
-                </p>
-                <ul
-                  v-if="natalChartPreviewRows.length"
-                  class="planner-natal-preview-list"
-                >
-                  <li
-                    v-for="row in natalChartPreviewRows"
-                    :key="row.id"
-                    class="planner-natal-preview-row"
+            <template v-else-if="page.kind === 'padding-blank-grid'">
+              <div
+                v-if="page.showNatalOnGrid"
+                class="planner-natal-on-grid"
+              >
+                <div class="calendar-natal-transits-inner">
+                  <p
+                    v-if="page.natalLine"
+                    class="calendar-cover-line calendar-cover-line--natal-transits calendar-natal-line"
+                  >
+                    {{ page.natalLine }}
+                  </p>
+                  <ul
+                    v-if="natalChartPreviewRows.length"
+                    class="planner-natal-preview-list"
+                  >
+                    <li
+                      v-for="row in natalChartPreviewRows"
+                      :key="row.id"
+                      class="planner-natal-preview-row"
+                      :class="row.elementClass"
+                    >
+                      <span class="planner-natal-preview-label">{{
+                        row.label
+                      }}</span>
+                      <span class="planner-natal-preview-position">{{
+                        row.position
+                      }}</span>
+                    </li>
+                  </ul>
+                </div>
+              </div>
+              <div
+                v-if="plannerNoonPlanetRows(page.nextDayKey)?.length"
+                class="planner-grid-bottom-glyphs"
+                role="img"
+                aria-label="Planets at local noon, following day"
+              >
+                <div class="planner-grid-planets-stack">
+                  <span
+                    v-for="row in plannerNoonPlanetRows(page.nextDayKey)"
+                    :key="`${page.nextDayKey}-noon-${row.id}`"
+                    class="planner-grid-glyph-pair"
                     :class="row.elementClass"
                   >
-                    <span class="planner-natal-preview-label">{{
-                      row.label
+                    <span class="glyph-char">{{
+                      row.planetKey || row.planetUnicode
                     }}</span>
-                    <span class="planner-natal-preview-position">{{
-                      row.position
+                    <span class="glyph-char">{{
+                      row.zodiacKey || row.zodiacUnicode
                     }}</span>
-                  </li>
-                </ul>
+                  </span>
+                </div>
               </div>
-            </section>
+            </template>
             <section
               v-else-if="page.kind === 'cover-back'"
               :class="[
@@ -1834,55 +1947,22 @@ const ashCoverProgressRanges = computed(() => {
               >
                 <li
                   v-if="
-                    props.isMoonCalendarMode && dayFooterSunMoonGlyphs(page.key)
+                    props.isMoonCalendarMode &&
+                    moonDignitiesForDay(page.key).length
                   "
                   class="event-block event-block--moon-inline-glyphs"
                 >
-                  <div class="moon-inline-glyphs-wrap">
-                    <div class="moon-dignity-wrap">
-                      <p
-                        v-for="(dignity, dignityIndex) in moonDignitiesForDay(
-                          page.key,
-                        )"
-                        :key="`${page.key}-moon-dignity-${dignity.type}-${dignityIndex}`"
-                        class="moon-dignity-line"
-                        :class="`moon-dignity-line--${dignity.type}`"
-                      >
-                        Moon in {{ dignity.type }} ({{ dignity.sign }})
-                      </p>
-                    </div>
-                    <div class="ash-sun-moon-glyph-pair">
-                      <span
-                        class="moon-dignity-inline-glyph"
-                        :class="
-                          dayFooterSunMoonGlyphs(page.key).sun.elementClass
-                        "
-                      >
-                        <span class="glyph-char">{{
-                          dayFooterSunMoonGlyphs(page.key).sun.planetKey ||
-                          dayFooterSunMoonGlyphs(page.key).sun.planetUnicode
-                        }}</span>
-                        <span class="glyph-char">{{
-                          dayFooterSunMoonGlyphs(page.key).sun.zodiacKey ||
-                          dayFooterSunMoonGlyphs(page.key).sun.zodiacUnicode
-                        }}</span>
-                      </span>
-                      <span
-                        class="moon-dignity-inline-glyph"
-                        :class="
-                          dayFooterSunMoonGlyphs(page.key).moon.elementClass
-                        "
-                      >
-                        <span class="glyph-char">{{
-                          dayFooterSunMoonGlyphs(page.key).moon.planetKey ||
-                          dayFooterSunMoonGlyphs(page.key).moon.planetUnicode
-                        }}</span>
-                        <span class="glyph-char">{{
-                          dayFooterSunMoonGlyphs(page.key).moon.zodiacKey ||
-                          dayFooterSunMoonGlyphs(page.key).moon.zodiacUnicode
-                        }}</span>
-                      </span>
-                    </div>
+                  <div class="moon-dignity-wrap moon-dignity-wrap--list-only">
+                    <p
+                      v-for="(dignity, dignityIndex) in moonDignitiesForDay(
+                        page.key,
+                      )"
+                      :key="`${page.key}-moon-dignity-${dignity.type}-${dignityIndex}`"
+                      class="moon-dignity-line"
+                      :class="`moon-dignity-line--${dignity.type}`"
+                    >
+                      Moon in {{ dignity.type }} ({{ dignity.sign }})
+                    </p>
                   </div>
                 </li>
                 <li
@@ -2056,33 +2136,6 @@ const ashCoverProgressRanges = computed(() => {
                 </li>
               </ul>
               <footer class="page-day-footer">
-                <div
-                  v-if="
-                    dayFooterSunMoonGlyphs(page.key) &&
-                    !props.isMoonCalendarMode
-                  "
-                  class="page-day-footer-glyphs"
-                  aria-label="Sun and Moon at local noon"
-                  :class="{
-                    'page-day-footer-glyphs--moon-mode':
-                      props.isMoonCalendarMode,
-                  }"
-                >
-                  <span
-                    v-if="!props.isMoonCalendarMode"
-                    class="page-day-footer-pair"
-                    :class="dayFooterSunMoonGlyphs(page.key).sun.elementClass"
-                  >
-                    <span class="glyph-char">{{
-                      dayFooterSunMoonGlyphs(page.key).sun.planetKey ||
-                      dayFooterSunMoonGlyphs(page.key).sun.planetUnicode
-                    }}</span>
-                    <span class="glyph-char">{{
-                      dayFooterSunMoonGlyphs(page.key).sun.zodiacKey ||
-                      dayFooterSunMoonGlyphs(page.key).sun.zodiacUnicode
-                    }}</span>
-                  </span>
-                </div>
                 <span
                   v-if="dayTithiDetails(page.key).primaryTithi"
                   class="page-moon-wrap page-moon-wrap--footer"
@@ -2103,6 +2156,7 @@ const ashCoverProgressRanges = computed(() => {
                 </span>
               </footer>
             </template>
+            </div>
           </article>
         </div>
       </section>
@@ -2181,36 +2235,97 @@ const ashCoverProgressRanges = computed(() => {
   border: 1px solid #d4d7df;
   border-radius: 10px;
   background: #ffffff;
-  padding: 0.85rem 1.35rem;
+  padding: 0;
   aspect-ratio: var(--calendar-page-aspect-w) / var(--calendar-page-aspect-h);
   height: auto;
-  display: flex;
-  flex-direction: column;
   min-height: 0;
   overflow: visible;
   box-sizing: border-box;
   font-family: Inter, "Avenir Next", Avenir, "Segoe UI", Roboto, sans-serif;
 }
 
-.calendar-day-card--moon-mode {
-  padding-left: 1.45rem;
-  padding-right: 1.45rem;
+/* Blank page before each day: same white + #f2f1e8 grid as weekly-blank-page, edge-to-edge. */
+.calendar-day-card.calendar-page--blank-grid {
+  padding: 0;
 }
 
-/* All DOM pages after the first: double left/right padding vs their base. */
-.calendar-day-card--double-lr-padding {
-  padding-left: calc(2.7rem + 0.4in); /* 2 × 1.35rem + extra trim-safe inset */
-  padding-right: calc(2.7rem + 0.4in);
+.planner-bleed-grid-page {
+  position: absolute;
+  inset: 0;
+  z-index: 0;
+  min-width: 0;
+  min-height: 0;
+  /* Same as .weekly-blank-page: white page (#fff), grid lines #f2f1e8, ⅛" step. */
+  background-color: #ffffff;
+  background-image:
+    linear-gradient(to right, #f2f1e8 1px, transparent 1px),
+    linear-gradient(to bottom, #f2f1e8 1px, transparent 1px);
+  background-size: 0.125in 0.125in;
 }
 
-.calendar-day-card--double-lr-padding.calendar-day-card--moon-mode {
-  padding-left: calc(2.9rem + 0.4in); /* 2 × 1.45rem + extra trim-safe inset */
-  padding-right: calc(2.9rem + 0.4in);
+/* Natal on blank grid: inside .calendar-content-frame (blue box). */
+.planner-natal-on-grid {
+  position: absolute;
+  z-index: 2;
+  top: 0;
+  right: 0;
+  left: 0;
+  /* reserve ~14rem for the vertical planet + zodiac column + its bottom margin */
+  bottom: 14rem;
+  display: flex;
+  flex-direction: column;
+  align-items: stretch;
+  justify-content: flex-start;
+  padding: 0;
+  box-sizing: border-box;
+  min-width: 0;
+  min-height: 0;
+  overflow: hidden;
+  pointer-events: none;
 }
 
-.calendar-day-card--double-lr-padding.calendar-page--cover {
-  padding-left: calc(2.5rem + 0.4in); /* 2 × 1.25rem + extra trim-safe inset */
-  padding-right: calc(2.5rem + 0.4in);
+/* Planets (same order as natal chart) at local noon; column grows upward from bottom-left. */
+.planner-grid-planets-stack {
+  display: flex;
+  flex-direction: column-reverse;
+  align-items: flex-start;
+  gap: 0.04rem;
+}
+
+/* planet column on blank grid: anchored to bottom of content frame. */
+.planner-grid-bottom-glyphs {
+  position: absolute;
+  z-index: 2;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  top: auto;
+  max-width: 100%;
+  display: flex;
+  flex-direction: column;
+  flex-wrap: nowrap;
+  align-items: flex-start;
+  justify-content: flex-end;
+  box-sizing: border-box;
+  padding: 0;
+  pointer-events: none;
+}
+
+.planner-grid-glyph-pair {
+  display: inline-flex;
+  align-items: baseline;
+  gap: 0.12rem;
+  font-weight: 600;
+}
+
+.planner-grid-bottom-glyphs .glyph-char {
+  font-family: Physis, serif;
+  font-size: clamp(0.9rem, 1.5vw, 1.5rem);
+  line-height: 1;
+}
+
+.moon-dignity-wrap--list-only {
+  width: 100%;
 }
 
 .calendar-trim-guide {
@@ -2237,10 +2352,6 @@ const ashCoverProgressRanges = computed(() => {
   box-shadow: none;
   border-radius: 0;
   overflow: hidden;
-}
-
-.calendar-page--cover {
-  padding: 0.75rem 1.25rem;
 }
 
 .calendar-cover-page {
@@ -2327,13 +2438,6 @@ const ashCoverProgressRanges = computed(() => {
   flex-direction: column;
   align-items: center;
   gap: 0.2rem;
-}
-
-.calendar-cover-page--natal-transits {
-  justify-content: flex-start;
-  align-items: stretch;
-  padding: 0.4rem 0.35rem 0.5rem;
-  box-sizing: border-box;
 }
 
 .calendar-natal-transits-inner {
@@ -2850,30 +2954,6 @@ const ashCoverProgressRanges = computed(() => {
   gap: 1.7rem;
   padding-top: 0;
   z-index: 1;
-}
-
-.page-day-footer-glyphs {
-  display: inline-flex;
-  align-items: baseline;
-  gap: 0.7rem;
-}
-
-.page-day-footer-glyphs--moon-mode {
-  justify-content: flex-end;
-  width: 100%;
-}
-
-.page-day-footer-pair {
-  display: inline-flex;
-  align-items: baseline;
-  gap: 0.12rem;
-  font-weight: 600;
-}
-
-.page-day-footer .glyph-char {
-  font-family: Physis, serif;
-  font-size: 1.9rem;
-  line-height: 1;
 }
 
 .page-moon-wrap {
