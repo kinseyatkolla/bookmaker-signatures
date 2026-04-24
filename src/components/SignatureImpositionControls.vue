@@ -598,6 +598,13 @@ function updateField(key, value) {
             between rows:
             {{ layout.formatInchesLabel(layout.layoutPreview.gapBetweenRows) }}".
           </p>
+          <button
+            type="button"
+            :disabled="typeof handlers.onGenerateCutCropSheet !== 'function'"
+            @click="handlers.onGenerateCutCropSheet?.()"
+          >
+            Generate Cut/Crop Sheet PDF
+          </button>
         </div>
       </div>
     </div>

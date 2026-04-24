@@ -10,6 +10,7 @@ import {
   toPoints,
 } from "../imposition/pdfUtils";
 import { renderImpositionSide } from "../imposition/pdfRender";
+import { generateCutCropSheetPdf } from "../imposition/cutCropSheetPdf";
 import SignatureImpositionControls from "../components/SignatureImpositionControls.vue";
 import PdfOutputActions from "../components/PdfOutputActions.vue";
 
@@ -558,6 +559,7 @@ const impositionControlHandlers = {
   onNumberOfSignaturesInput,
   onOutputLayoutPointerDown,
   onOutputLayoutPointerEnter,
+  onGenerateCutCropSheet,
 };
 
 function onImpositionControlFieldUpdate({ key, value }) {
@@ -626,6 +628,18 @@ function downloadCombinedPdf() {
 
   const pageCount = impositionOutputs.value.length * 2;
   triggerDownload(combinedPdfUrl.value, `bookmaker-output-${pageCount}p.pdf`);
+}
+
+async function onGenerateCutCropSheet() {
+  await generateCutCropSheetPdf({
+    layoutPreview: layoutPreview.value,
+    outputWidthInches: Number(outputWidth.value),
+    outputHeightInches: Number(outputHeight.value),
+    showCropMarks: Boolean(showCropMarks.value),
+    cropMarkOffsetInches: Number(cropMarkOffset.value),
+    cropMarkLengthInches: Number(cropMarkLength.value),
+    fileName: "bookmaker-cut-crop-sheet.pdf",
+  });
 }
 
 async function createPagePlaceholderPngBytes(slot, rotationDegreesValue) {

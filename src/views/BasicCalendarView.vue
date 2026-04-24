@@ -11,6 +11,7 @@ import {
   toPoints,
 } from "../imposition/pdfUtils";
 import { renderImpositionSide } from "../imposition/pdfRender";
+import { generateCutCropSheetPdf } from "../imposition/cutCropSheetPdf";
 import {
   calibratePreviewScale,
   loadPreviewPhysicalScale,
@@ -536,6 +537,18 @@ function downloadCombinedPdf() {
   triggerDownload(combinedPdfUrl.value, `basic-calendar-output-${pageCount}p.pdf`);
 }
 
+async function onGenerateCutCropSheet() {
+  await generateCutCropSheetPdf({
+    layoutPreview: layoutPreview.value,
+    outputWidthInches: Number(outputWidth.value),
+    outputHeightInches: Number(outputHeight.value),
+    showCropMarks: Boolean(showCropMarks.value),
+    cropMarkOffsetInches: Number(cropMarkOffset.value),
+    cropMarkLengthInches: Number(cropMarkLength.value),
+    fileName: "basic-calendar-cut-crop-sheet.pdf",
+  });
+}
+
 async function drawImpositionSide(
   page,
   pdfDocument,
@@ -835,6 +848,7 @@ const impositionControlHandlers = {
   onNumberOfSignaturesInput,
   onOutputLayoutPointerDown,
   onOutputLayoutPointerEnter,
+  onGenerateCutCropSheet,
 };
 
 function onImpositionControlFieldUpdate({ key, value }) {

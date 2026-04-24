@@ -11,6 +11,7 @@ import {
   toPoints,
 } from "../imposition/pdfUtils";
 import { renderImpositionSide } from "../imposition/pdfRender";
+import { generateCutCropSheetPdf } from "../imposition/cutCropSheetPdf";
 import {
   calibratePreviewScale,
   loadPreviewPhysicalScale,
@@ -757,6 +758,18 @@ function downloadCombinedPdf() {
   );
 }
 
+async function onGenerateCutCropSheet() {
+  await generateCutCropSheetPdf({
+    layoutPreview: layoutPreview.value,
+    outputWidthInches: Number(outputWidth.value),
+    outputHeightInches: Number(outputHeight.value),
+    showCropMarks: Boolean(showCropMarks.value),
+    cropMarkOffsetInches: Number(cropMarkOffset.value),
+    cropMarkLengthInches: Number(cropMarkLength.value),
+    fileName: "daily-moon-cut-crop-sheet.pdf",
+  });
+}
+
 async function drawImpositionSide(
   page,
   pdfDocument,
@@ -1112,6 +1125,7 @@ const impositionControlHandlers = {
   onNumberOfSignaturesInput,
   onOutputLayoutPointerDown,
   onOutputLayoutPointerEnter,
+  onGenerateCutCropSheet,
 };
 
 const moonPhasePngUrlByTithi = (() => {
