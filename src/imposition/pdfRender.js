@@ -55,9 +55,7 @@ export async function renderImpositionSide({
   const startY = (outputHeightPoints - totalGridHeightPoints) / 2;
   const markOffsetPoints = toPoints(cropMarkOffset);
   const markLengthPoints = toPoints(cropMarkLength);
-
-  for (let slotIndex = 0; slotIndex < slots.length; slotIndex += 1) {
-    const slot = slots[slotIndex];
+  const slotBounds = slots.map((slot) => {
     const row = slot.gridRow;
     const sheetCol = slot.sheetCol;
     const pageIndexWithinSheet = slot.pageIndexWithinSheet;
@@ -77,6 +75,25 @@ export async function renderImpositionSide({
       x = cellBaseX + pageIndexWithinSheet * (slotWidthPoints + gapAtFoldPoints);
       y = cellBaseY;
     }
+
+    return {
+      slot,
+      x,
+      y,
+      width: slotWidthPoints,
+      height: slotHeightPoints,
+      x2: x + slotWidthPoints,
+      y2: y + slotHeightPoints,
+    };
+  });
+
+  for (let slotIndex = 0; slotIndex < slots.length; slotIndex += 1) {
+    const slot = slots[slotIndex];
+    const currentBounds = slotBounds[slotIndex];
+    const row = slot.gridRow;
+    const sheetCol = slot.sheetCol;
+    const pageIndexWithinSheet = slot.pageIndexWithinSheet;
+    const { x, y, x2, y2 } = currentBounds;
 
     const cropTop = foldHorizontal
       ? row === 0 && pageIndexWithinSheet === 1
@@ -185,12 +202,20 @@ export async function renderImpositionSide({
     const dy = Number(offset?.dy) || 0;
     const clipToSlot =
       (clipOnOffset && (Math.abs(dx) > 0.01 || Math.abs(dy) > 0.01)) || bleedActive;
+    const clipBounds = bleedActive
+      ? getSafeBleedClipBounds({
+          currentBounds,
+          allBounds: slotBounds,
+          outputWidthPoints,
+          outputHeightPoints,
+        })
+      : null;
 
     drawPdfImageCreeped(page, asset.image, {
-      clipX: x,
-      clipY: y,
-      clipW: slotWidthPoints,
-      clipH: slotHeightPoints,
+      clipX: clipBounds?.clipX ?? x,
+      clipY: clipBounds?.clipY ?? y,
+      clipW: clipBounds?.clipW ?? slotWidthPoints,
+      clipH: clipBounds?.clipH ?? slotHeightPoints,
       drawX: drawX + dx,
       drawY: drawY + dy,
       drawW,
@@ -227,4 +252,63 @@ function mapBleedForRotation(bleed, rotationDegrees) {
     return { top: right, right: bottom, bottom: left, left: top };
   }
   return { top, right, bottom, left };
+}
+
+function rangesOverlap(minA, maxA, minB, maxB) {
+  return Math.min(maxA, maxB) > Math.max(minA, minB);
+}
+
+function getSafeBleedClipBounds({
+  currentBounds,
+  allBounds,
+  outputWidthPoints,
+  outputHeightPoints,
+}) {
+  let minX = 0;
+  let maxX = outputWidthPoints;
+  let minY = 0;
+  let maxY = outputHeightPoints;
+
+  for (const bounds of allBounds) {
+    if (bounds === currentBounds) {
+      continue;
+    }
+
+    const overlapsY = rangesOverlap(
+      currentBounds.y,
+      currentBounds.y2,
+      bounds.y,
+      bounds.y2,
+    );
+    if (overlapsY) {
+      if (bounds.x2 <= currentBounds.x) {
+        minX = Math.max(minX, bounds.x2);
+      }
+      if (bounds.x >= currentBounds.x2) {
+        maxX = Math.min(maxX, bounds.x);
+      }
+    }
+
+    const overlapsX = rangesOverlap(
+      currentBounds.x,
+      currentBounds.x2,
+      bounds.x,
+      bounds.x2,
+    );
+    if (overlapsX) {
+      if (bounds.y2 <= currentBounds.y) {
+        minY = Math.max(minY, bounds.y2);
+      }
+      if (bounds.y >= currentBounds.y2) {
+        maxY = Math.min(maxY, bounds.y);
+      }
+    }
+  }
+
+  const clipX = Math.max(0, Math.min(currentBounds.x, minX));
+  const clipY = Math.max(0, Math.min(currentBounds.y, minY));
+  const clipW = Math.max(0.01, Math.min(outputWidthPoints, maxX) - clipX);
+  const clipH = Math.max(0.01, Math.min(outputHeightPoints, maxY) - clipY);
+
+  return { clipX, clipY, clipW, clipH };
 }
