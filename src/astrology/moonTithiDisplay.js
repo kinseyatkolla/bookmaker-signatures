@@ -37,3 +37,14 @@ export const getMoonTithiStep = (tithiNumber) => {
   }
   return MOON_TITHI_STEPS.find((step) => step.number === tithiNumber) ?? null;
 };
+
+export const formatMoonTithiTransitionLabel = (tithiNumber) => {
+  const n = Number(tithiNumber);
+  if (!Number.isFinite(n) || n < 1 || n > 30) {
+    return "";
+  }
+  if (n <= 15) {
+    return `Waxing moon ${n}`;
+  }
+  return `Waning moon ${n - 15}`;
+};

@@ -23,7 +23,10 @@ import {
 import SignatureImpositionControls from "../components/SignatureImpositionControls.vue";
 import PdfOutputActions from "../components/PdfOutputActions.vue";
 import AstrologyEventsPanel from "../components/AstrologyEventsPanel.vue";
-import { getMoonTithiStep } from "../astrology/moonTithiDisplay";
+import {
+  formatMoonTithiTransitionLabel,
+  getMoonTithiStep,
+} from "../astrology/moonTithiDisplay";
 import {
   getPlanetKeysFromNames,
   getPlanetUnicodeFallback,
@@ -1321,7 +1324,9 @@ function dayEventsForDisplay(page) {
     return {
       id: `${page.key}-tithi-transition-${index}`,
       eventType: "tithi transition",
-      mainLabel: `Tithi shifts to ${tithiStep?.name || `T${transition.tithi}`}`,
+      mainLabel:
+        formatMoonTithiTransitionLabel(transition.tithi) ||
+        `Tithi shifts to ${tithiStep?.name || `T${transition.tithi}`}`,
       timestamp: formatHourToApproxLabel(transition.hour),
       glyphRows: [],
       aspectPhysisKey: "",

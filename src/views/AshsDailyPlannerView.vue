@@ -24,7 +24,10 @@ import SignatureImpositionControls from "../components/SignatureImpositionContro
 import PdfOutputActions from "../components/PdfOutputActions.vue";
 import AstrologyEventsPanel from "../components/AstrologyEventsPanel.vue";
 import ProgressArcs from "../components/ProgressArcs.vue";
-import { getMoonTithiStep } from "../astrology/moonTithiDisplay";
+import {
+  formatMoonTithiTransitionLabel,
+  getMoonTithiStep,
+} from "../astrology/moonTithiDisplay";
 import {
   getPlanetKeysFromNames,
   getPlanetUnicodeFallback,
@@ -1376,11 +1379,9 @@ function dayEventsForDisplay(page) {
   ).filter((transition) => Number(transition?.hour) !== 0);
   const tithiEvents = transitions.map((transition, index) => {
     const tithiStep = getMoonTithiStep(transition.tithi);
-    const tithiName = String(tithiStep?.name || "");
-    const phaseMatch = tithiName.match(/^([SK])(\d{1,2})$/i);
-    const transitionLabel = phaseMatch
-      ? `${phaseMatch[1].toUpperCase() === "S" ? "Waxing moon" : "Waning moon"} ${Math.min(15, Math.max(1, Number(phaseMatch[2]) || 1))}/15`
-      : `Tithi shifts to ${tithiStep?.name || `T${transition.tithi}`}`;
+    const transitionLabel =
+      formatMoonTithiTransitionLabel(transition.tithi) ||
+      `Tithi shifts to ${tithiStep?.name || `T${transition.tithi}`}`;
     const sortKey = Number.isFinite(transition.hour)
       ? Number(transition.hour) * 60
       : index * 60;
