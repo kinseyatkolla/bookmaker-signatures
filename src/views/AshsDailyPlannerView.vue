@@ -1176,6 +1176,15 @@ const PLANET_API_KEY_TO_DISPLAY_NAME = {
   pluto: "Pluto",
 };
 
+/** Rounded 0–29° within sign from tropical longitude (0–360°). */
+function roundedDegreeInSignFromPlanet(p) {
+  if (typeof p?.longitude !== "number" || !Number.isFinite(p.longitude)) {
+    return null;
+  }
+  const within = ((p.longitude % 30) + 30) % 30;
+  return Math.min(29, Math.max(0, Math.round(within)));
+}
+
 /** All planets in natal order for the pre-grid column; data from /astrology/chart at local noon. */
 function plannerNoonPlanetRows(dateKey) {
   const raw = dayTithiDetails(dateKey).planetsAtNoon;
@@ -1196,9 +1205,16 @@ function plannerNoonPlanetRows(dateKey) {
       zodiacKey: zodiacKeys[sign] || "",
       zodiacUnicode: zodiacUnicodeFallback[sign] || "",
       elementClass: signElementClass(sign),
+      degreeRounded: roundedDegreeInSignFromPlanet(p),
     });
   }
   return rows.length ? rows : null;
+}
+
+/** Pl → Su order for the bottom-left stack (natal order is reversed for display). */
+function plannerNoonPlanetRowsReversed(dateKey) {
+  const rows = plannerNoonPlanetRows(dateKey);
+  return rows ? rows.slice().reverse() : null;
 }
 
 function formatTithiSummary(tithiNumber, hourCounts) {
@@ -1339,7 +1355,8 @@ function isEphemerisListEvent(event) {
     type === "aspect" ||
     type === "ingress" ||
     type === "natal transit" ||
-    type === "station"
+    type === "station" ||
+    type === "lunation"
   );
 }
 
@@ -1359,13 +1376,18 @@ function dayEventsForDisplay(page) {
   ).filter((transition) => Number(transition?.hour) !== 0);
   const tithiEvents = transitions.map((transition, index) => {
     const tithiStep = getMoonTithiStep(transition.tithi);
+    const tithiName = String(tithiStep?.name || "");
+    const phaseMatch = tithiName.match(/^([SK])(\d{1,2})$/i);
+    const transitionLabel = phaseMatch
+      ? `${phaseMatch[1].toUpperCase() === "S" ? "Waxing moon" : "Waning moon"} ${Math.min(15, Math.max(1, Number(phaseMatch[2]) || 1))}/15`
+      : `Tithi shifts to ${tithiStep?.name || `T${transition.tithi}`}`;
     const sortKey = Number.isFinite(transition.hour)
       ? Number(transition.hour) * 60
       : index * 60;
     return {
       id: `${page.key}-tithi-transition-${index}`,
       eventType: "tithi transition",
-      mainLabel: `Tithi shifts to ${tithiStep?.name || `T${transition.tithi}`}`,
+      mainLabel: transitionLabel,
       timestamp: formatHourToApproxLabel(transition.hour),
       glyphRows: [],
       aspectPhysisKey: "",
@@ -1616,6 +1638,7 @@ const ashCoverProgressRanges = computed(() => {
         :end-date="endDate"
         :moon-mode="false"
         :merge-all-planet-and-moon-ephemeris="true"
+        :include-lunations="true"
         @update:eventsByDate="onAstrologyEventsByDateUpdate"
         @update:context="onAstrologyContextUpdate"
         @update:tithisByDate="onAstrologyTithisByDateUpdate"
@@ -1781,8 +1804,12 @@ const ashCoverProgressRanges = computed(() => {
                   >
                     <span class="glyph-char">{{
                       row.planetKey || row.planetUnicode
-                    }}</span>
-                    <span class="glyph-char">{{
+                    }}</span
+                    ><span
+                      v-if="row.degreeRounded != null"
+                      class="planner-grid-degree-text"
+                      >{{ row.degreeRounded }}°</span
+                    ><span class="glyph-char">{{
                       row.zodiacKey || row.zodiacUnicode
                     }}</span>
                   </span>
@@ -1997,16 +2024,13 @@ const ashCoverProgressRanges = computed(() => {
                           event.glyphRows[0].zodiacKey ||
                           event.glyphRows[0].zodiacUnicode
                         }}</span
-                      >
-                      <span class="glyph-row-degree"
-                        >{{ event.glyphRows[0].degree
-                        }}{{
-                          !props.isMoonCalendarMode
-                            ? ` ${event.glyphRows[0].signName}`
-                            : ""
-                        }}</span
-                      >
-                      <span
+                      >{{
+                        event.glyphRows[0].degree
+                      }}{{
+                        !props.isMoonCalendarMode
+                          ? ` ${event.glyphRows[0].signName}`
+                          : ""
+                      }}<span
                         v-if="props.isMoonCalendarMode"
                         class="glyph-char"
                         >{{
@@ -2036,16 +2060,13 @@ const ashCoverProgressRanges = computed(() => {
                           event.glyphRows[1].zodiacKey ||
                           event.glyphRows[1].zodiacUnicode
                         }}</span
-                      >
-                      <span class="glyph-row-degree"
-                        >{{ event.glyphRows[1].degree
-                        }}{{
-                          !props.isMoonCalendarMode
-                            ? ` ${event.glyphRows[1].signName}`
-                            : ""
-                        }}</span
-                      >
-                      <span
+                      >{{
+                        event.glyphRows[1].degree
+                      }}{{
+                        !props.isMoonCalendarMode
+                          ? ` ${event.glyphRows[1].signName}`
+                          : ""
+                      }}<span
                         v-if="props.isMoonCalendarMode"
                         class="glyph-char"
                         >{{
@@ -2075,14 +2096,11 @@ const ashCoverProgressRanges = computed(() => {
                         v-if="!props.isMoonCalendarMode"
                         class="glyph-char"
                         >{{ row.zodiacKey || row.zodiacUnicode }}</span
-                      >
-                      <span class="glyph-row-degree"
-                        >{{ row.degree
-                        }}{{
-                          !props.isMoonCalendarMode ? ` ${row.signName}` : ""
-                        }}</span
-                      >
-                      <span
+                      >{{
+                        row.degree
+                      }}{{
+                        !props.isMoonCalendarMode ? ` ${row.signName}` : ""
+                      }}<span
                         v-if="props.isMoonCalendarMode"
                         class="glyph-char"
                         >{{ row.zodiacKey || row.zodiacUnicode }}</span
@@ -2104,7 +2122,8 @@ const ashCoverProgressRanges = computed(() => {
                           : '',
                         event.eventType === 'aspect' ||
                         event.eventType === 'ingress' ||
-                        event.eventType === 'station'
+                        event.eventType === 'station' ||
+                        event.eventType === 'lunation'
                           ? 'event-title--aspect'
                           : '',
                       ]"
@@ -2284,12 +2303,12 @@ const ashCoverProgressRanges = computed(() => {
   pointer-events: none;
 }
 
-/* Planets (same order as natal chart) at local noon; column grows upward from bottom-left. */
+/* Pl→Su (reversed natal order); column top→bottom, stack anchored to bottom-left of frame. */
 .planner-grid-planets-stack {
   display: flex;
-  flex-direction: column-reverse;
+  flex-direction: column;
   align-items: flex-start;
-  gap: 0.04rem;
+  gap: 0.08rem;
 }
 
 /* planet column on blank grid: anchored to bottom of content frame. */
@@ -2312,10 +2331,22 @@ const ashCoverProgressRanges = computed(() => {
 }
 
 .planner-grid-glyph-pair {
-  display: inline-flex;
-  align-items: baseline;
-  gap: 0.12rem;
-  font-weight: 600;
+  display: inline-grid;
+  grid-template-columns: 1.2em 2.2ch 1.2em;
+  align-items: center;
+  column-gap: 0.2rem;
+  /* Base text: matches .event-title--tithi-transition (naked degree string inherits) */
+  font-size: 0.62rem;
+  line-height: 1.2;
+  font-weight: 700;
+  letter-spacing: 0.02em;
+}
+
+.planner-grid-degree-text {
+  display: inline-block;
+  width: 2.2ch;
+  text-align: right;
+  font-variant-numeric: tabular-nums;
 }
 
 .planner-grid-bottom-glyphs .glyph-char {
@@ -2746,7 +2777,8 @@ const ashCoverProgressRanges = computed(() => {
   max-height: 3lh;
   box-sizing: border-box;
   overflow: hidden;
-  border-bottom: 1px solid #e6e6e6;
+  /* same offwhite as .planner-bleed-grid-page grid lines (#f2f1e8) */
+  border-bottom: 1px solid #f2f1e8;
   padding: 0;
 }
 
@@ -2825,27 +2857,23 @@ const ashCoverProgressRanges = computed(() => {
   padding: 0 0.1rem;
 }
 
+/* Match .planner-grid-glyph-pair: center (not baseline) so small tithi-sized degree text lines up with Physis glyphs. */
 .glyph-row {
   display: inline-flex;
-  align-items: baseline;
-  gap: 0.35rem;
+  align-items: center;
+  gap: 0.2rem;
   white-space: nowrap;
-  font-size: 0.98rem;
-  font-weight: 600;
+  /* Base: matches .event-title--tithi-transition; degree + sign name inherit (glyph-char overrides) */
+  font-size: 0.62rem;
+  line-height: 1;
+  font-weight: 700;
+  letter-spacing: 0.02em;
 }
 
 .glyph-char {
   font-size: 1.15rem;
   font-family: Physis, serif;
   line-height: 1;
-}
-
-.glyph-row-degree {
-  font-weight: 700;
-}
-
-.calendar-page--day .glyph-row-degree {
-  font-weight: 500;
 }
 
 .event-title-row {

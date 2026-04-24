@@ -13,6 +13,10 @@ import {
   buildNatalChartPreviewRows,
   signElementClass,
 } from "../astrology/natalChartPreview";
+import {
+  fetchLunationsForYear,
+  filterLunationsToDateRange,
+} from "../astrology/lunations.js";
 
 const DEFAULT_BIRTH_TIME_ZONE = "America/Chicago";
 const DEFAULT_BIRTH_LOCAL = {
@@ -52,6 +56,11 @@ const props = defineProps({
    * the full-ephemeris set plus the Moon-sampled set from correspondences-app.
    */
   mergeAllPlanetAndMoonEphemeris: {
+    type: Boolean,
+    default: false,
+  },
+  /** OPALE lunations (new/full/etc.) for current location; merged into event list. */
+  includeLunations: {
     type: Boolean,
     default: false,
   },
@@ -405,6 +414,15 @@ function normalizeEvent(event, fallbackId) {
     }
     if (eventType === "ingress") return buildIngressMainLabel();
     if (eventType === "station") return buildStationMainLabel();
+    if (eventType === "lunation") {
+      let label = titleCaseLabel(event.title || "Lunation");
+      if (event.isEclipse && event.eclipseType === "solar") {
+        label += " (Solar Eclipse)";
+      } else if (event.isEclipse && event.eclipseType === "lunar") {
+        label += " (Lunar Eclipse)";
+      }
+      return label;
+    }
     return titleCaseLabel(
       event.title ??
         event.label ??
@@ -435,6 +453,13 @@ function normalizeEvent(event, fallbackId) {
         degreeFormatted: event.degreeFormatted,
         zodiacSignName: event.zodiacSignName,
       },
+    });
+    if (row) glyphRows.push(row);
+  }
+  if (eventType === "lunation" && event.moonPosition?.zodiacSignName) {
+    const row = buildGlyphRow({
+      planetName: "moon",
+      position: event.moonPosition,
     });
     if (row) glyphRows.push(row);
   }
@@ -850,6 +875,7 @@ function yearEphemerisEventKey(event) {
     String(event?.planet ?? ""),
     String(event?.toSign ?? ""),
     String(event?.stationType ?? ""),
+    String(event?.title ?? ""),
   ]
     .map((v) => (v == null ? "" : String(v)))
     .join("\u001e");
@@ -1000,7 +1026,33 @@ async function loadAstrologyEvents() {
         ]);
       }),
     );
-    rawEvents.value = yearPayloads.flat();
+    const ephemerisFlat = yearPayloads.flat();
+    let lunationEvents = [];
+    if (
+      props.includeLunations === true &&
+      parseCoordinates(form.currentLatitude, form.currentLongitude)
+    ) {
+      const coords = parseCoordinates(
+        form.currentLatitude,
+        form.currentLongitude,
+      );
+      const lunationLists = await Promise.all(
+        yearsToFetch.value.map((y) =>
+          fetchLunationsForYear(y, coords, apiBaseUrl.value).catch(() => []),
+        ),
+      );
+      const mergedLun = mergeYearEphemerisNoDupes(lunationLists.flat());
+      lunationEvents = filterLunationsToDateRange(
+        mergedLun,
+        props.startDate,
+        props.endDate,
+        locationTimeZone.value || "UTC",
+      );
+    }
+    rawEvents.value = mergeYearEphemerisNoDupes([
+      ...ephemerisFlat,
+      ...lunationEvents,
+    ]);
     const eclipseMaps = await Promise.all(
       yearsToFetch.value.map((year) =>
         buildEclipseTypeByDateKey(year, locationTimeZone.value || "UTC").catch(
@@ -1043,7 +1095,7 @@ async function loadAstrologyEvents() {
 }
 
 watch(
-  () => [props.startDate, props.endDate],
+  () => [props.startDate, props.endDate, props.includeLunations],
   () => {
     if (didAttemptLoad.value) {
       loadAstrologyEvents();

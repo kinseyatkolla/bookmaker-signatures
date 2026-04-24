@@ -1280,6 +1280,9 @@ function isMoonOnlyAspectOrIngress(event) {
     return false;
   }
   const type = String(event.eventType || "").toLowerCase();
+  if (type === "lunation") {
+    return true;
+  }
   if (type !== "aspect" && type !== "ingress") {
     return false;
   }
@@ -1551,6 +1554,7 @@ function toDateInputValue(date) {
         :start-date="startDate"
         :end-date="endDate"
         :moon-mode="props.isMoonCalendarMode"
+        :include-lunations="true"
         @update:eventsByDate="onAstrologyEventsByDateUpdate"
         @update:context="onAstrologyContextUpdate"
         @update:tithisByDate="onAstrologyTithisByDateUpdate"
@@ -1989,7 +1993,8 @@ function toDateInputValue(date) {
                           ? `event-title--tithi-${event.tithiColorKey || 'blue'}`
                           : '',
                         event.eventType === 'aspect' ||
-                        event.eventType === 'ingress'
+                        event.eventType === 'ingress' ||
+                        event.eventType === 'lunation'
                           ? 'event-title--aspect'
                           : '',
                       ]"
