@@ -539,6 +539,40 @@ function updateField(key, value) {
             the row under Page / Signatures / Output.</small
           >
         </div>
+        <section class="size-group size-group--gaps">
+          <h3>Creep / Nudge</h3>
+          <label class="field checkbox-field" for="enable-creep-nudge">
+            <input
+              id="enable-creep-nudge"
+              :checked="form.enableCreepNudge"
+              type="checkbox"
+              name="imposition-enable-creep-nudge"
+              @change="updateField('enableCreepNudge', $event.target.checked)"
+            />
+            <span>Enable creep/nudge offset by sheet depth</span>
+          </label>
+          <label class="field">
+            <span>Paper depth (in)</span>
+            <input
+              :value="form.pageDepthInches"
+              type="number"
+              name="imposition-page-depth-inches"
+              min="0"
+              step="0.001"
+              :disabled="!form.enableCreepNudge"
+              @input="
+                updateField(
+                  'pageDepthInches',
+                  parseNumberInput($event.target.value, form.pageDepthInches),
+                )
+              "
+            />
+            <small>
+              Per-sheet stack thickness used to offset opposing pages from the
+              fold.
+            </small>
+          </label>
+        </section>
       </div>
       <div class="pdf-output-preview-column">
         <h2>Actual-Size PDF Output</h2>

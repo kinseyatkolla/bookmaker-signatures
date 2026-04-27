@@ -74,7 +74,8 @@ const domPreviewMarginLeft = ref(DEFAULT_DOM_PREVIEW_MARGIN_IN);
 const isGeneratingPdf = ref(false);
 const pdfError = ref("");
 const combinedPdfUrl = ref("");
-const PAGE_DEPTH_INCHES = 0.25 / 25;
+const pageDepthInches = ref(0.25 / 25);
+const enableCreepNudge = ref(true);
 const rasterizedPageFiles = ref([]);
 const reusableBlankGridFile = ref(null);
 const rasterizeProgressCurrent = ref(0);
@@ -913,12 +914,14 @@ async function drawImpositionSide(
     },
     pageTrimInches: { width: Number(pageWidth.value), height: Number(pageHeight.value) },
     getSlotOffset: ({ slot, foldHorizontal, pageIndexWithinSheet }) =>
-      getSheetCreepOffsetPoints({
-        sheetNumber: slot.sheetNumber ?? 1,
-        foldHorizontal,
-        pageIndexWithinSheet,
-        pageDepthInches: PAGE_DEPTH_INCHES,
-      }),
+      enableCreepNudge.value
+        ? getSheetCreepOffsetPoints({
+            sheetNumber: slot.sheetNumber ?? 1,
+            foldHorizontal,
+            pageIndexWithinSheet,
+            pageDepthInches: pageDepthInches.value,
+          })
+        : { dx: 0, dy: 0 },
     resolveSlotAsset: async ({ slot, rasterRotation, pdfDocument: doc }) => {
       if (!slot.file) {
         return null;
@@ -1245,6 +1248,8 @@ const impositionControlForm = computed(() => ({
   showCropMarks: showCropMarks.value,
   cropMarkOffset: cropMarkOffset.value,
   cropMarkLength: cropMarkLength.value,
+  pageDepthInches: pageDepthInches.value,
+  enableCreepNudge: enableCreepNudge.value,
   bleedTop: bleedTop.value,
   bleedRight: bleedRight.value,
   bleedBottom: bleedBottom.value,
@@ -1487,6 +1492,12 @@ function onImpositionControlFieldUpdate({ key, value }) {
       break;
     case "cropMarkLength":
       cropMarkLength.value = value;
+      break;
+    case "pageDepthInches":
+      pageDepthInches.value = Math.max(0, Number(value) || 0);
+      break;
+    case "enableCreepNudge":
+      enableCreepNudge.value = Boolean(value);
       break;
     case "bleedTop":
       bleedTop.value = Math.max(0, Number(value) || 0);

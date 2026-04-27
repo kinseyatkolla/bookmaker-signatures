@@ -71,7 +71,7 @@ const GUIDE_OPACITY = 0.24;
 /** Rotate guide circles so path origin sits at 9 o’clock, matching longitude 0 on the left. */
 const GUIDE_ROTATE = `rotate(180 ${CX} ${CY})`;
 
-const HIDE_MOON_RING_AFTER_DAYS = 28;
+const HIDE_MOON_RING_AFTER_DAYS = 27;
 
 const zodiacPhysisByName = getZodiacKeysFromNames();
 const zodiacUnicodeByName = getZodiacUnicodeFallback();
@@ -81,10 +81,12 @@ const loadError = ref("");
 const chartSamples = ref([]);
 /** Calendar span in days (start noon → end noon); used for two-point Moon heuristic. */
 const spanDays = ref(1);
+/** Inclusive calendar-day span from date keys (e.g., Feb 1→Feb 28 = 28). */
+const spanCalendarDays = ref(1);
 const isLoading = ref(false);
 
 const showMoonRing = computed(
-  () => spanDays.value <= HIDE_MOON_RING_AFTER_DAYS,
+  () => spanCalendarDays.value <= HIDE_MOON_RING_AFTER_DAYS,
 );
 const visiblePlanetStack = computed(() =>
   showMoonRing.value
@@ -227,6 +229,28 @@ function parseCoords() {
   return { latitude: lat, longitude: lon };
 }
 
+function parseDateKeyLocalMidnight(dateKey) {
+  const [year, month, day] = String(dateKey || "").split("-").map(Number);
+  if (
+    !Number.isFinite(year) ||
+    !Number.isFinite(month) ||
+    !Number.isFinite(day)
+  ) {
+    return null;
+  }
+  return new Date(year, month - 1, day, 0, 0, 0, 0);
+}
+
+function inclusiveCalendarDaySpan(startDateKey, endDateKey) {
+  const start = parseDateKeyLocalMidnight(startDateKey);
+  const end = parseDateKeyLocalMidnight(endDateKey);
+  if (!start || !end) {
+    return 1;
+  }
+  const diffDays = Math.round((end.getTime() - start.getTime()) / 86400000);
+  return Math.max(1, diffDays + 1);
+}
+
 /**
  * Tropical longitude λ (0–360°): λ = 0 at left (9 o’clock). Vertical flip vs raw ecliptic map:
  * `y = CY + r·sin(L)` mirrors across the horizontal axis through the center (Cancer / Capricorn
@@ -335,6 +359,10 @@ async function loadPositions() {
   spanDays.value = Math.max(
     (endUtc.getTime() - startUtc.getTime()) / 86400000,
     1 / 24,
+  );
+  spanCalendarDays.value = inclusiveCalendarDaySpan(
+    props.startDate,
+    props.endDate,
   );
 
   const instants = buildSampleUtcInstants(startUtc, endUtc);

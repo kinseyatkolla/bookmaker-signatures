@@ -59,7 +59,8 @@ const combinedPdfUrl = ref("");
 
 const pagesPerSheet = 4;
 /** Paper stack thickness per sheet layer (in) for folded-signature creep. */
-const PAGE_DEPTH_INCHES = 0.25 / 25;
+const pageDepthInches = ref(0.25 / 25);
+const enableCreepNudge = ref(true);
 const pagesPerSignature = computed(
   () => Math.max(1, sheetsPerSignature.value) * pagesPerSheet,
 );
@@ -524,6 +525,8 @@ const impositionControlForm = computed(() => ({
   showCropMarks: showCropMarks.value,
   cropMarkOffset: cropMarkOffset.value,
   cropMarkLength: cropMarkLength.value,
+  pageDepthInches: pageDepthInches.value,
+  enableCreepNudge: enableCreepNudge.value,
   bleedTop: bleedTop.value,
   bleedRight: bleedRight.value,
   bleedBottom: bleedBottom.value,
@@ -593,6 +596,12 @@ function onImpositionControlFieldUpdate({ key, value }) {
       break;
     case "cropMarkLength":
       cropMarkLength.value = value;
+      break;
+    case "pageDepthInches":
+      pageDepthInches.value = Math.max(0, Number(value) || 0);
+      break;
+    case "enableCreepNudge":
+      enableCreepNudge.value = Boolean(value);
       break;
     case "bleedTop":
       bleedTop.value = Math.max(0, Number(value) || 0);
@@ -744,12 +753,14 @@ async function drawImpositionSide(
     },
     pageTrimInches: { width: Number(pageWidth.value), height: Number(pageHeight.value) },
     getSlotOffset: ({ slot, foldHorizontal, pageIndexWithinSheet }) =>
-      getSheetCreepOffsetPoints({
-        sheetNumber: slot.sheetNumber ?? 1,
-        foldHorizontal,
-        pageIndexWithinSheet,
-        pageDepthInches: PAGE_DEPTH_INCHES,
-      }),
+      enableCreepNudge.value
+        ? getSheetCreepOffsetPoints({
+            sheetNumber: slot.sheetNumber ?? 1,
+            foldHorizontal,
+            pageIndexWithinSheet,
+            pageDepthInches: pageDepthInches.value,
+          })
+        : { dx: 0, dy: 0 },
     resolveSlotAsset: async ({ slot, rasterRotation, pdfDocument: doc }) => {
       if (!slot.file && slot.hasSourcePage) {
         const placeholderBytes = await createPagePlaceholderPngBytes(

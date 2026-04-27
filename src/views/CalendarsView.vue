@@ -43,6 +43,14 @@
             Ash's Daily Planner
           </RouterLink>
         </li>
+        <li>
+          <RouterLink
+            class="primary-button calendars-nav-button"
+            to="/calendars/five-year-flip"
+          >
+            Five Year Flip
+          </RouterLink>
+        </li>
       </ul>
     </section>
   </main>

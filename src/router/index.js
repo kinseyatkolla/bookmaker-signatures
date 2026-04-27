@@ -8,6 +8,7 @@ import BasicDailyAstrologyCalendarView from "../views/BasicDailyAstrologyCalenda
 import BasicWeeklyAstrologyCalendarView from "../views/BasicWeeklyAstrologyCalendarView.vue";
 import DailyMoonCalendarView from "../views/DailyMoonCalendarView.vue";
 import AshsDailyPlannerView from "../views/AshsDailyPlannerView.vue";
+import FiveYearFlipView from "../views/FiveYearFlipView.vue";
 
 const routes = [
   { path: "/", name: "signatures", component: SignaturesView },
@@ -32,6 +33,11 @@ const routes = [
     path: "/calendars/ashs-daily-planner",
     name: "calendars-ashs-daily-planner",
     component: AshsDailyPlannerView,
+  },
+  {
+    path: "/calendars/five-year-flip",
+    name: "calendars-five-year-flip",
+    component: FiveYearFlipView,
   },
   { path: "/folded-zine-1", name: "folded-zine-1", component: FoldedZine1View },
   { path: "/folded-zine-2", name: "folded-zine-2", component: FoldedZine2View },

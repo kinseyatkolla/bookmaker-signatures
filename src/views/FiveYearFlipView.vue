@@ -23,24 +23,36 @@ import {
 } from "../imposition/domPreviewMargins";
 import SignatureImpositionControls from "../components/SignatureImpositionControls.vue";
 import PdfOutputActions from "../components/PdfOutputActions.vue";
+import AstrologyEventsPanel from "../components/AstrologyEventsPanel.vue";
+import ProgressArcs from "../components/ProgressArcs.vue";
 
-const today = new Date();
-const plusThirty = new Date(today);
-plusThirty.setDate(today.getDate() + 30);
+const now = new Date();
+const defaultStartMonth = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}`;
+const startMonth = ref(defaultStartMonth);
 
-const startDate = ref(toDateInputValue(today));
-const endDate = ref(toDateInputValue(plusThirty));
+const astrologyContext = ref({
+  locationName: "",
+  latitude: "",
+  longitude: "",
+  timeZone: "UTC",
+  apiBaseUrl: "http://localhost:3000/api",
+  birthDateTime: "",
+  birthLocationName: "",
+  startDate: "",
+  endDate: "",
+  natalChart: null,
+});
 
 const sheetsPerSignature = ref(4);
 const numberOfSignatures = ref(1);
-const signatureCalcMode = ref("sheets-fixed");
+const signatureCalcMode = ref("signatures-fixed");
 const outputWidth = ref(8.5);
 const outputHeight = ref(11);
-const pageWidth = ref(2.5);
-const pageHeight = ref(3.5);
-const outputLayoutCols = ref(2);
-const outputLayoutRows = ref(2);
-const outputFoldAxis = ref("horizontal");
+const pageWidth = ref(4.25);
+const pageHeight = ref(2.75);
+const outputLayoutCols = ref(1);
+const outputLayoutRows = ref(4);
+const outputFoldAxis = ref("vertical");
 const OUTPUT_LAYOUT_GRID_MAX = 8;
 const layoutSelectDragging = ref(false);
 const layoutSelectAnchor = ref({ col: 0, row: 0 });
@@ -50,12 +62,12 @@ const PLATE_BACK_ROTATION_DEG = -90;
 const cropMarkOffset = ref(0.08);
 const cropMarkLength = ref(0.18);
 const showCropMarks = ref(true);
-const bleedTop = ref(0);
+const bleedTop = ref(0.25);
 const bleedRight = ref(0.25);
-const bleedBottom = ref(0);
+const bleedBottom = ref(0.25);
 const bleedLeft = ref(0.25);
-const horizontalGap = ref(0.08);
-const verticalGap = ref(0.08);
+const horizontalGap = ref(0);
+const verticalGap = ref(0);
 const domPreviewMarginTop = ref(DEFAULT_DOM_PREVIEW_MARGIN_IN);
 const domPreviewMarginRight = ref(DEFAULT_DOM_PREVIEW_MARGIN_IN);
 const domPreviewMarginBottom = ref(DEFAULT_DOM_PREVIEW_MARGIN_IN);
@@ -79,39 +91,79 @@ const pagesPerSignature = computed(
   () => Math.max(1, sheetsPerSignature.value) * pagesPerSheet,
 );
 
-const calendarPages = computed(() => {
-  const start = parseDateInput(startDate.value);
-  const end = parseDateInput(endDate.value);
+function parseMonthInput(value) {
+  if (!value) {
+    return null;
+  }
+  const [year, month] = String(value).split("-").map(Number);
+  if (
+    !Number.isFinite(year) ||
+    !Number.isFinite(month) ||
+    month < 1 ||
+    month > 12
+  ) {
+    return null;
+  }
+  return { year, month0: month - 1 };
+}
 
-  if (!start || !end || start.getTime() > end.getTime()) {
+const fiveYearMonthPages = computed(() => {
+  const parsed = parseMonthInput(startMonth.value);
+  if (!parsed) {
     return [];
   }
-
+  const { year, month0 } = parsed;
   const pages = [];
-  const cursor = new Date(start);
-  cursor.setHours(12, 0, 0, 0);
-
-  while (cursor.getTime() <= end.getTime()) {
-    const current = new Date(cursor);
+  for (let i = 0; i < 60; i += 1) {
+    const first = new Date(year, month0 + i, 1, 12, 0, 0, 0);
+    const y = first.getFullYear();
+    const m = first.getMonth();
+    const last = new Date(y, m + 1, 0, 12, 0, 0, 0);
+    const key = `${y}-${String(m + 1).padStart(2, "0")}`;
     pages.push({
-      key: toDateInputValue(current),
-      dayNumber: current.getDate(),
-      fullDateLabel: current.toLocaleString("en-US", {
-        weekday: "long",
-        year: "numeric",
+      key,
+      monthLabel: first.toLocaleString("en-US", {
         month: "long",
-        day: "numeric",
-        hour: "numeric",
-        minute: "2-digit",
-        second: "2-digit",
+        year: "numeric",
       }),
-      isoStamp: current.toISOString(),
+      progressStart: toDateInputValue(new Date(y, m, 1, 12, 0, 0, 0)),
+      progressEnd: toDateInputValue(last),
     });
-    cursor.setDate(cursor.getDate() + 1);
   }
-
   return pages;
 });
+
+const fiveYearRangeForPanel = computed(() => {
+  const pages = fiveYearMonthPages.value;
+  if (pages.length < 60) {
+    return { start: "", end: "" };
+  }
+  return {
+    start: pages[0].progressStart,
+    end: pages[59].progressEnd,
+  };
+});
+
+const calendarPages = computed(() =>
+  fiveYearMonthPages.value.flatMap((monthPage, index) => {
+    const monthEntry = {
+      ...monthPage,
+      rasterKey: `${monthPage.key}-month`,
+      kind: "month",
+    };
+    if (index === 0) {
+      return [monthEntry];
+    }
+    return [
+      {
+        key: `${monthPage.key}-blank`,
+        rasterKey: `${monthPage.key}-blank`,
+        kind: "blank",
+      },
+      monthEntry,
+    ];
+  }),
+);
 
 const uploadedPageCount = computed(() => calendarPages.value.length);
 const effectivePageCount = computed(() => calendarPages.value.length);
@@ -535,7 +587,10 @@ function downloadCombinedPdf() {
   }
 
   const pageCount = impositionOutputs.value.length * 2;
-  triggerDownload(combinedPdfUrl.value, `basic-calendar-output-${pageCount}p.pdf`);
+  triggerDownload(
+    combinedPdfUrl.value,
+    `five-year-flip-output-${pageCount}p.pdf`,
+  );
 }
 
 async function onGenerateCutCropSheet() {
@@ -574,7 +629,10 @@ async function drawImpositionSide(
       bottom: bleedBottom.value,
       left: bleedLeft.value,
     },
-    pageTrimInches: { width: Number(pageWidth.value), height: Number(pageHeight.value) },
+    pageTrimInches: {
+      width: Number(pageWidth.value),
+      height: Number(pageHeight.value),
+    },
     getSlotOffset: ({ slot, foldHorizontal, pageIndexWithinSheet }) =>
       enableCreepNudge.value
         ? getSheetCreepOffsetPoints({
@@ -619,7 +677,7 @@ async function rasterizeCalendarPages() {
       pageIndex += 1
     ) {
       const pageData = calendarPages.value[pageIndex];
-      const card = dateCardRefs.value[pageData.key];
+      const card = dateCardRefs.value[pageData.rasterKey];
       if (!card) {
         throw new Error("Calendar page card is not ready for rasterization.");
       }
@@ -666,7 +724,7 @@ async function generatePdfOutput() {
   }
 
   if (calendarPages.value.length === 0) {
-    pdfError.value = "Choose a valid date range to create calendar pages.";
+    pdfError.value = "Choose a valid start month to create 60 monthly pages.";
     return;
   }
 
@@ -799,6 +857,30 @@ const contentFrameBoxStyle = computed(() =>
   }),
 );
 
+const astrologyTimeframeLabel = computed(() => {
+  const { start, end } = fiveYearRangeForPanel.value;
+  if (!start || !end) {
+    return "Set a valid start month";
+  }
+  return `${start} through ${end}`;
+});
+
+const astrologyLocationLabel = computed(() => {
+  const name = astrologyContext.value.locationName;
+  if (!name) {
+    return "Location not set";
+  }
+  const latitude = Number(astrologyContext.value.latitude);
+  const longitude = Number(astrologyContext.value.longitude);
+  const hasCoordinates =
+    Number.isFinite(latitude) && Number.isFinite(longitude);
+  const coordinateText = hasCoordinates
+    ? ` (${latitude.toFixed(4)}, ${longitude.toFixed(4)})`
+    : "";
+  const tz = astrologyContext.value.timeZone || "UTC";
+  return `${name}${coordinateText} · ${tz}`;
+});
+
 const impositionControlForm = computed(() => ({
   signatureCalcMode: signatureCalcMode.value,
   pageWidth: pageWidth.value,
@@ -855,6 +937,10 @@ const impositionControlHandlers = {
   onOutputLayoutPointerEnter,
   onGenerateCutCropSheet,
 };
+
+function onAstrologyContextUpdate(nextContext) {
+  astrologyContext.value = nextContext ?? astrologyContext.value;
+}
 
 function onImpositionControlFieldUpdate({ key, value }) {
   switch (key) {
@@ -926,21 +1012,6 @@ function onImpositionControlFieldUpdate({ key, value }) {
   }
 }
 
-function parseDateInput(value) {
-  if (!value) {
-    return null;
-  }
-  const [year, month, day] = String(value).split("-").map(Number);
-  if (
-    !Number.isFinite(year) ||
-    !Number.isFinite(month) ||
-    !Number.isFinite(day)
-  ) {
-    return null;
-  }
-  return new Date(year, month - 1, day, 12, 0, 0, 0);
-}
-
 function toDateInputValue(date) {
   const year = date.getFullYear();
   const month = String(date.getMonth() + 1).padStart(2, "0");
@@ -953,31 +1024,25 @@ function toDateInputValue(date) {
   <main class="page">
     <section class="card">
       <div class="calendar-header">
-        <h1>Basic Calendar</h1>
-        <RouterLink class="small-button" to="/calendars">Back to Calendars</RouterLink>
+        <h1>Five Year Flip</h1>
+        <RouterLink class="small-button" to="/calendars"
+          >Back to Calendars</RouterLink
+        >
       </div>
       <p class="subtitle">
-        Build one DOM card per day in a date range, rasterize those cards, and run
-        them through the existing imposition engine.
+        One DOM page per month for five years from the chosen start month, with
+        the same progress arc wheel as Ash's Daily Planner covers. Rasterize and
+        run through the imposition engine.
       </p>
 
       <div class="grid date-range-grid">
-        <label class="field" for="basic-calendar-start-date">
-          <span>Start Date</span>
+        <label class="field" for="five-year-flip-start-month">
+          <span>Start month</span>
           <input
-            id="basic-calendar-start-date"
-            v-model="startDate"
-            name="basic-calendar-start-date"
-            type="date"
-          />
-        </label>
-        <label class="field" for="basic-calendar-end-date">
-          <span>End Date</span>
-          <input
-            id="basic-calendar-end-date"
-            v-model="endDate"
-            name="basic-calendar-end-date"
-            type="date"
+            id="five-year-flip-start-month"
+            v-model="startMonth"
+            name="five-year-flip-start-month"
+            type="month"
           />
         </label>
       </div>
@@ -991,12 +1056,28 @@ function toDateInputValue(date) {
         @update:field="onImpositionControlFieldUpdate"
       />
 
+      <AstrologyEventsPanel
+        :start-date="fiveYearRangeForPanel.start"
+        :end-date="fiveYearRangeForPanel.end"
+        :moon-mode="false"
+        :merge-all-planet-and-moon-ephemeris="false"
+        :include-lunations="false"
+        @update:context="onAstrologyContextUpdate"
+      />
+
       <PdfOutputActions :state="pdfOutputState" :handlers="pdfOutputHandlers" />
 
       <section class="calendar-pages-section">
         <h2>Calendar DOM Pages</h2>
+        <p class="calendar-pages-context">
+          <strong>Current location:</strong> {{ astrologyLocationLabel }}
+          <span class="calendar-pages-context-separator">|</span>
+          <strong>Span:</strong> {{ astrologyTimeframeLabel }}
+        </p>
         <p class="note">
-          Each card matches the page aspect ratio and is rasterized at PDF generation.
+          120 pages total: one blank page before each monthly progress page.
+          Each card matches the page aspect ratio and is rasterized at PDF
+          generation.
         </p>
         <div class="calendar-preview-calibration">
           <label class="field checkbox-field">
@@ -1010,11 +1091,14 @@ function toDateInputValue(date) {
           <div class="calendar-preview-calibration-row">
             <span
               class="calendar-calibration-ruler"
-              :style="{ width: `${PREVIEW_CALIBRATION_REFERENCE_INCHES * 96 * previewPhysicalScale}px` }"
+              :style="{
+                width: `${PREVIEW_CALIBRATION_REFERENCE_INCHES * 96 * previewPhysicalScale}px`,
+              }"
               aria-hidden="true"
             ></span>
             <span class="calendar-calibration-ruler-label"
-              >Measure this line (target {{ PREVIEW_CALIBRATION_REFERENCE_INCHES }}")</span
+              >Measure this line (target
+              {{ PREVIEW_CALIBRATION_REFERENCE_INCHES }}")</span
             >
           </div>
           <div class="calendar-preview-calibration-row">
@@ -1027,10 +1111,18 @@ function toDateInputValue(date) {
                 step="0.01"
               />
             </label>
-            <button type="button" class="secondary-button" @click="applyPreviewCalibration">
+            <button
+              type="button"
+              class="secondary-button"
+              @click="applyPreviewCalibration"
+            >
               Calibrate
             </button>
-            <button type="button" class="secondary-button" @click="resetPreviewCalibration">
+            <button
+              type="button"
+              class="secondary-button"
+              @click="resetPreviewCalibration"
+            >
               Reset
             </button>
           </div>
@@ -1042,8 +1134,8 @@ function toDateInputValue(date) {
         >
           <article
             v-for="page in calendarPages"
-            :key="page.key"
-            :ref="(el) => setDateCardRef(page.key, el)"
+            :key="page.rasterKey"
+            :ref="(el) => setDateCardRef(page.rasterKey, el)"
             :style="calendarTrimGuideStyle"
             :class="[
               'calendar-day-card',
@@ -1051,13 +1143,28 @@ function toDateInputValue(date) {
             ]"
           >
             <div class="calendar-trim-guide" aria-hidden="true" />
-            <div
-              class="calendar-content-frame"
-              :style="contentFrameBoxStyle"
-            >
-              <p class="calendar-day-number">{{ page.dayNumber }}</p>
-              <p class="calendar-day-label">{{ page.fullDateLabel }}</p>
-              <p class="calendar-day-iso">{{ page.isoStamp }}</p>
+            <div class="calendar-content-frame" :style="contentFrameBoxStyle">
+              <div
+                v-if="page.kind === 'blank'"
+                class="five-year-flip-blank-page"
+              />
+              <div v-else class="five-year-flip-inner">
+                <h2 class="five-year-flip-title">{{ page.monthLabel }}</h2>
+                <div
+                  class="five-year-flip-arc"
+                  :aria-label="`Progress arcs for ${page.monthLabel}`"
+                >
+                  <ProgressArcs
+                    size="cover"
+                    :start-date="page.progressStart"
+                    :end-date="page.progressEnd"
+                    :api-base-url="astrologyContext.apiBaseUrl"
+                    :latitude="astrologyContext.latitude"
+                    :longitude="astrologyContext.longitude"
+                    :time-zone="astrologyContext.timeZone"
+                  />
+                </div>
+              </div>
             </div>
           </article>
         </div>
@@ -1076,6 +1183,77 @@ function toDateInputValue(date) {
 
 .date-range-grid {
   margin-bottom: 1rem;
+}
+
+.calendar-pages-context {
+  font-size: 0.88rem;
+  line-height: 1.4;
+  color: #374151;
+  margin: 0.35rem 0 0.5rem;
+}
+
+.calendar-pages-context-separator {
+  margin: 0 0.4rem;
+  color: #9ca3af;
+}
+
+.five-year-flip-inner {
+  position: relative;
+  width: 100%;
+  height: 100%;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  box-sizing: border-box;
+  padding: 0.02rem;
+}
+
+.five-year-flip-blank-page {
+  width: 100%;
+  height: 100%;
+}
+
+.five-year-flip-title {
+  margin: 0;
+  position: absolute;
+  left: 0.06in;
+  top: 0.06in;
+  width: 1.25in;
+  font-size: clamp(0.58rem, 1.5vw, 0.72rem);
+  font-weight: 700;
+  letter-spacing: 0.03em;
+  line-height: 1;
+  text-align: right;
+  text-transform: uppercase;
+  color: #1f2f55;
+  white-space: nowrap;
+  transform: rotate(-90deg) translateX(-100%);
+  transform-origin: top left;
+  z-index: 1;
+}
+
+.five-year-flip-arc {
+  container-type: size;
+  flex: 0 1 auto;
+  min-height: 0;
+  width: 100%;
+  height: 100%;
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+}
+
+.five-year-flip-arc :deep(.progress-arcs) {
+  width: min(100cqi, 100cqb) !important;
+  max-width: 100% !important;
+  max-height: 100% !important;
+  min-height: 0;
+  height: auto !important;
+  box-sizing: border-box;
+  aspect-ratio: 1;
+  flex-shrink: 0;
 }
 
 .calendar-pages-section {
@@ -1159,30 +1337,5 @@ function toDateInputValue(date) {
   outline: none;
   box-shadow: none;
   overflow: hidden;
-}
-
-.calendar-day-number {
-  margin: 0;
-  font-size: clamp(3rem, 8vw, 5.4rem);
-  line-height: 0.95;
-  font-weight: 800;
-  color: #1f2f55;
-}
-
-.calendar-day-label {
-  margin: 0.75rem 0 0;
-  font-size: 0.95rem;
-  line-height: 1.35;
-  color: #1d222f;
-}
-
-.calendar-day-iso {
-  margin: 0.45rem 0 0;
-  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas,
-    "Liberation Mono", "Courier New", monospace;
-  font-size: 0.72rem;
-  line-height: 1.25;
-  color: #535a69;
-  overflow-wrap: anywhere;
 }
 </style>
