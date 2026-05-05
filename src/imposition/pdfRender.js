@@ -155,36 +155,49 @@ export async function renderImpositionSide({
     let drawY = y;
     let bleedActive = false;
 
+    const pw = Number(asset.pixelWidth);
+    const ph = Number(asset.pixelHeight);
+    const imageWidth =
+      Number.isFinite(pw) && pw > 0 ? pw : asset.image.width;
+    const imageHeight =
+      Number.isFinite(ph) && ph > 0 ? ph : asset.image.height;
+
     if (fitMode === "contain") {
-      const imageWidth = asset.image.width;
-      const imageHeight = asset.image.height;
-      const scale = Math.min(slotWidthPoints / imageWidth, slotHeightPoints / imageHeight);
+      let fitRectX = x;
+      let fitRectY = y;
+      let fitRectW = slotWidthPoints;
+      let fitRectH = slotHeightPoints;
+
+      if (bleedInches && pageTrimInches) {
+        const bleed = mapBleedForRotation(
+          bleedInches,
+          foldHorizontal ? getRasterRotation(rotationDegreesValue) : 0,
+        );
+        const trim = mapTrimForRotation(
+          pageTrimInches,
+          foldHorizontal ? getRasterRotation(rotationDegreesValue) : 0,
+        );
+        const hasBleed =
+          bleed.left > 0 || bleed.right > 0 || bleed.top > 0 || bleed.bottom > 0;
+        if (hasBleed && trim.width > 0 && trim.height > 0) {
+          fitRectW =
+            slotWidthPoints * ((trim.width + bleed.left + bleed.right) / trim.width);
+          fitRectH =
+            slotHeightPoints * ((trim.height + bleed.top + bleed.bottom) / trim.height);
+          fitRectX = x - slotWidthPoints * (bleed.left / trim.width);
+          fitRectY = y - slotHeightPoints * (bleed.bottom / trim.height);
+          bleedActive = true;
+        }
+      }
+
+      const scale = Math.min(
+        fitRectW / imageWidth,
+        fitRectH / imageHeight,
+      );
       drawW = imageWidth * scale;
       drawH = imageHeight * scale;
-      drawX = x + (slotWidthPoints - drawW) / 2;
-      drawY = y + (slotHeightPoints - drawH) / 2;
-    }
-
-    if (fitMode === "contain" && bleedInches && pageTrimInches) {
-      const bleed = mapBleedForRotation(
-        bleedInches,
-        foldHorizontal ? getRasterRotation(rotationDegreesValue) : 0,
-      );
-      const trim = mapTrimForRotation(
-        pageTrimInches,
-        foldHorizontal ? getRasterRotation(rotationDegreesValue) : 0,
-      );
-      const hasBleed =
-        bleed.left > 0 || bleed.right > 0 || bleed.top > 0 || bleed.bottom > 0;
-      if (hasBleed && trim.width > 0 && trim.height > 0) {
-        drawW =
-          slotWidthPoints * ((trim.width + bleed.left + bleed.right) / trim.width);
-        drawH =
-          slotHeightPoints * ((trim.height + bleed.top + bleed.bottom) / trim.height);
-        drawX = x - slotWidthPoints * (bleed.left / trim.width);
-        drawY = y - slotHeightPoints * (bleed.bottom / trim.height);
-        bleedActive = true;
-      }
+      drawX = fitRectX + (fitRectW - drawW) / 2;
+      drawY = fitRectY + (fitRectH - drawH) / 2;
     }
 
     const offset = getSlotOffset({

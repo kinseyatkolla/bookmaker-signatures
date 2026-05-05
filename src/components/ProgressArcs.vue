@@ -560,7 +560,8 @@ const svgTitle = computed(() => {
 }
 
 .progress-arcs--cover {
-  width: min(82vw, 19.5rem);
+  width: 100%;
+  max-width: 100%;
 }
 
 .progress-arcs-svg {
@@ -615,7 +616,8 @@ const svgTitle = computed(() => {
   }
 
   .progress-arcs--cover {
-    width: min(62vw, 22rem);
+    width: 100%;
+    max-width: 100%;
   }
 }
 </style>

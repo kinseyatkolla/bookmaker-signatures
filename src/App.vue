@@ -9,6 +9,7 @@ import { RouterLink, RouterView } from "vue-router";
       <nav class="app-nav" aria-label="Primary">
         <RouterLink to="/" class="nav-link">Base Signatures</RouterLink>
         <RouterLink to="/calendars" class="nav-link">Calendars</RouterLink>
+        <RouterLink to="/pinterest" class="nav-link">Pinterest</RouterLink>
         <RouterLink to="/folded-zine-1" class="nav-link"
           >Folded Zine</RouterLink
         >

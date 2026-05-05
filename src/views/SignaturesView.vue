@@ -50,9 +50,9 @@ const bleedRight = ref(0);
 const bleedBottom = ref(0);
 const bleedLeft = ref(0);
 /** Space between sheet rows on the output (adds to total layout height). */
-const horizontalGap = ref(0.08);
+const horizontalGap = ref(0.5);
 /** Space between sheet columns on the output (adds to total layout width). */
-const verticalGap = ref(0.08);
+const verticalGap = ref(0.75);
 const isGeneratingPdf = ref(false);
 const pdfError = ref("");
 const combinedPdfUrl = ref("");
