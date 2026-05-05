@@ -51,11 +51,14 @@ const ELEMENT_COLORS = {
 };
 
 const INNER_CHART_W = 360;
-const LABEL_GUTTER_X = 18;
+/** Horizontal padding for day labels (pre-rotation left/right); wider avoids clipped text when rotated. */
+const LABEL_GUTTER_X = 30;
 const CHART_X0 = LABEL_GUTTER_X;
 const VIEW_WIDTH = LABEL_GUTTER_X + INNER_CHART_W + LABEL_GUTTER_X;
-const TOP_BAR_HEIGHT = 12;
-const CHART_TOP = TOP_BAR_HEIGHT + 1;
+/** Header strip height (SVG units); sized so DOM zodiac glyphs can read larger without dwarfing the row. */
+const TOP_BAR_HEIGHT = 15;
+/** First day row starts flush below the zodiac strip (no extra spacer band). */
+const CHART_TOP = TOP_BAR_HEIGHT;
 const CHART_BOTTOM = 252;
 const VIEW_HEIGHT = CHART_BOTTOM + 2;
 const MAX_DAYS = 370;
@@ -274,13 +277,24 @@ function signElement(signName) {
 }
 
 const zodiacBar = computed(() =>
-  TROPICAL_SIGN_ORDER.map((signName, index) => ({
-    signName,
-    x: CHART_X0 + index * 30,
-    width: 30,
-    color: ELEMENT_COLORS[signElement(signName)],
-    label: zodiacPhysisByName[signName] || zodiacUnicodeByName[signName] || "",
-  })),
+  TROPICAL_SIGN_ORDER.map((signName, index) => {
+    const x = CHART_X0 + index * 30;
+    const width = 30;
+    const cx = x + width / 2;
+    return {
+      signName,
+      x,
+      width,
+      color: ELEMENT_COLORS[signElement(signName)],
+      /** Physis key char or Unicode fallback; rendered in HTML overlay (PDF-safe), not SVG text elements. */
+      glyph:
+        zodiacPhysisByName[signName] || zodiacUnicodeByName[signName] || "",
+      overlayLeftPct: (cx / VIEW_WIDTH) * 100,
+      /** Anchor glyphs toward the bottom of the header so less dead air above the day grid. */
+      overlayTopPct:
+        ((TOP_BAR_HEIGHT - 1.6) / VIEW_HEIGHT) * 100,
+    };
+  }),
 );
 
 /** 12 background cells per day row; colors follow zodiac header columns. */
@@ -409,38 +423,28 @@ const svgTitle = computed(
         'progress-lines-canvas--rotate-cw': isHorizontal && isClockwise,
       }"
     >
-      <svg
-        class="progress-lines-svg"
-        :viewBox="`0 0 ${VIEW_WIDTH} ${VIEW_HEIGHT}`"
-        preserveAspectRatio="xMidYMid meet"
-        role="img"
-        :aria-label="svgTitle"
-      >
-        <title>{{ svgTitle }}</title>
+      <div class="progress-lines-figure">
+        <svg
+          class="progress-lines-svg"
+          :viewBox="`0 0 ${VIEW_WIDTH} ${VIEW_HEIGHT}`"
+          preserveAspectRatio="xMidYMid meet"
+          overflow="visible"
+          role="img"
+          :aria-label="svgTitle"
+        >
+          <title>{{ svgTitle }}</title>
 
-        <g class="progress-lines-zodiac-bar">
-          <rect
-            v-for="z in zodiacBar"
-            :key="`bar-${z.signName}`"
-            :x="z.x"
-            y="0"
-            :width="z.width"
-            :height="TOP_BAR_HEIGHT"
-            fill="#ffffff"
-          />
-          <text
-            v-for="z in zodiacBar"
-            :key="`label-${z.signName}`"
-            :x="z.x + z.width / 2"
-            :y="TOP_BAR_HEIGHT / 2"
-            text-anchor="middle"
-            dominant-baseline="middle"
-            class="progress-lines-zodiac-label"
-            :fill="z.color"
-          >
-            {{ z.label }}
-          </text>
-        </g>
+          <g class="progress-lines-zodiac-bar">
+            <rect
+              v-for="z in zodiacBar"
+              :key="`bar-${z.signName}`"
+              :x="z.x"
+              y="0"
+              :width="z.width"
+              :height="TOP_BAR_HEIGHT"
+              fill="#ffffff"
+            />
+          </g>
 
         <g class="progress-lines-day-rows" aria-hidden="true">
           <rect
@@ -522,7 +526,23 @@ const svgTitle = computed(
             />
           </template>
         </g>
-      </svg>
+        </svg>
+        <!-- DOM glyphs (same approach as ProgressArcs): SVG text lacks Physis in PDF rasterization. -->
+        <div class="progress-lines-zodiac-overlay" aria-hidden="true">
+          <span
+            v-for="z in zodiacBar"
+            :key="`z-overlay-${z.signName}`"
+            class="progress-lines-zodiac-glyph"
+            :style="{
+              left: `${z.overlayLeftPct}%`,
+              top: `${z.overlayTopPct}%`,
+              color: z.color,
+            }"
+          >
+            {{ z.glyph }}
+          </span>
+        </div>
+      </div>
     </div>
     <p v-if="loadError" class="progress-lines-error">{{ loadError }}</p>
   </div>
@@ -546,6 +566,7 @@ const svgTitle = computed(
 .progress-lines--cover {
   width: 100%;
   max-width: 100%;
+  overflow: visible;
 }
 
 .progress-lines--loading {
@@ -582,9 +603,28 @@ const svgTitle = computed(
   display: block;
 }
 
-.progress-lines-zodiac-label {
+.progress-lines-figure {
+  position: relative;
+  width: 100%;
+  height: 100%;
+}
+
+.progress-lines-zodiac-overlay {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  font-size: clamp(12px, 6cqmin, 19px);
+}
+
+.progress-lines-zodiac-glyph {
+  position: absolute;
+  transform: translate(-50%, -52%);
   font-family: Physis, serif;
-  font-size: 11px;
+  font-size: 1em;
+  line-height: 0.92;
+  text-shadow:
+    0 0 0.25px rgba(255, 255, 255, 0.65),
+    0 0 0.25px rgba(255, 255, 255, 0.65);
 }
 
 .progress-lines-day-label {

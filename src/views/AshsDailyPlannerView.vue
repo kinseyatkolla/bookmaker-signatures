@@ -312,7 +312,7 @@ function formatCoverLocationName(rawName) {
   return parts[0] || "Location not set";
 }
 
-function formatNatalCoverLine(dateTimeRaw, locationRaw) {
+function formatNatalTransitsIntroLine(dateTimeRaw) {
   const parsed = new Date(dateTimeRaw);
   if (Number.isNaN(parsed.getTime())) {
     return "";
@@ -328,7 +328,7 @@ function formatNatalCoverLine(dateTimeRaw, locationRaw) {
     })
     .replace(" AM", "am")
     .replace(" PM", "pm");
-  return `Natal Transits for ${when}, ${formatCoverLocationName(locationRaw)}`;
+  return `Natal Transits for ${when}`;
 }
 
 const hasNatalTransits = computed(() =>
@@ -347,12 +347,13 @@ const calendarRasterPages = computed(() => {
   const locationLine = formatCoverLocationName(
     astrologyContext.value.locationName,
   );
-  const natalLine = hasNatalTransits.value
-    ? formatNatalCoverLine(
-        astrologyContext.value.birthDateTime,
-        astrologyContext.value.birthLocationName,
-      )
+  const natalTransitsIntroLine = hasNatalTransits.value
+    ? formatNatalTransitsIntroLine(astrologyContext.value.birthDateTime)
     : "";
+  const natalTransitsLocationLine =
+    natalTransitsIntroLine !== ""
+      ? formatCoverLocationName(astrologyContext.value.birthLocationName)
+      : "";
   const coverTitle =
     String(coverTitleOverride.value || "").trim() ||
     formatTimeframeCoverTitle(start, end);
@@ -362,7 +363,8 @@ const calendarRasterPages = computed(() => {
       key: `blank-grid-${p.key}`,
       kind: "padding-blank-grid",
       showNatalOnGrid: i === 0,
-      natalLine: i === 0 ? natalLine : "",
+      natalTransitsIntroLine: i === 0 ? natalTransitsIntroLine : "",
+      natalTransitsLocationLine: i === 0 ? natalTransitsLocationLine : "",
       nextDayKey: p.key,
     },
     { ...p, kind: "day" },
@@ -1887,12 +1889,21 @@ const ashCoverProgressRange = computed(() => {
               <template v-else-if="page.kind === 'padding-blank-grid'">
                 <div v-if="page.showNatalOnGrid" class="planner-natal-on-grid">
                   <div class="calendar-natal-transits-inner">
-                    <p
-                      v-if="page.natalLine"
-                      class="calendar-cover-line calendar-cover-line--natal-transits calendar-natal-line"
+                    <div
+                      v-if="page.natalTransitsIntroLine"
+                      class="calendar-natal-transits-heading"
                     >
-                      {{ page.natalLine }}
-                    </p>
+                      <p
+                        class="calendar-cover-line calendar-cover-line--natal-transits calendar-natal-line"
+                      >
+                        {{ page.natalTransitsIntroLine }}
+                      </p>
+                      <p
+                        class="calendar-cover-line calendar-cover-line--natal-transits calendar-natal-line"
+                      >
+                        {{ page.natalTransitsLocationLine }}
+                      </p>
+                    </div>
                     <ul
                       v-if="natalChartPreviewRows.length"
                       class="planner-natal-preview-list"
@@ -2643,9 +2654,18 @@ const ashCoverProgressRange = computed(() => {
   box-sizing: border-box;
 }
 
+.calendar-natal-transits-heading {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 0.15rem;
+  width: 100%;
+  margin-bottom: 0.3rem;
+}
+
 .calendar-natal-line {
   text-align: center;
-  margin-bottom: 0.3rem;
+  margin: 0;
 }
 
 .planner-natal-preview-list {
