@@ -109,6 +109,8 @@ const FULL_LAP_CLOSURE_TOL_DEG = 14;
  * steps then point the wrong way and `describeRingArc` retraces the rim many times. Cap sweep.
  */
 const MOON_MAX_DISPLAY_SWEEP_DEG = 360.5;
+const CHART_FETCH_MAX_ATTEMPTS = 2;
+const CHART_FETCH_RETRY_DELAY_MS = 120;
 
 /**
  * Positive 0…360° rim step from start to end in the prograde (zodiac-increasing) sense.
@@ -299,45 +301,65 @@ function resolvedApiBase() {
 }
 
 async function fetchChartUtc(utcDate, coords) {
-  const response = await fetch(`${resolvedApiBase()}/astrology/chart`, {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({
-      year: utcDate.getUTCFullYear(),
-      month: utcDate.getUTCMonth() + 1,
-      day: utcDate.getUTCDate(),
-      hour: utcDate.getUTCHours(),
-      minute: utcDate.getUTCMinutes(),
-      second: utcDate.getUTCSeconds(),
-      latitude: coords.latitude,
-      longitude: coords.longitude,
-    }),
-  });
+  let lastError = null;
+  for (let attempt = 1; attempt <= CHART_FETCH_MAX_ATTEMPTS; attempt += 1) {
+    try {
+      const response = await fetch(`${resolvedApiBase()}/astrology/chart`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          year: utcDate.getUTCFullYear(),
+          month: utcDate.getUTCMonth() + 1,
+          day: utcDate.getUTCDate(),
+          hour: utcDate.getUTCHours(),
+          minute: utcDate.getUTCMinutes(),
+          second: utcDate.getUTCSeconds(),
+          latitude: coords.latitude,
+          longitude: coords.longitude,
+        }),
+      });
 
-  if (!response.ok) {
-    throw new Error(`Chart request failed (HTTP ${response.status}).`);
-  }
+      if (!response.ok) {
+        // Retry transient server errors once before surfacing.
+        if (attempt < CHART_FETCH_MAX_ATTEMPTS && response.status >= 500) {
+          await new Promise((resolve) =>
+            setTimeout(resolve, CHART_FETCH_RETRY_DELAY_MS),
+          );
+          continue;
+        }
+        throw new Error(`Chart request failed (HTTP ${response.status}).`);
+      }
 
-  const payload = await response.json();
-  if (payload?.success === false) {
-    throw new Error(String(payload.error || "Chart request failed."));
-  }
+      const payload = await response.json();
+      if (payload?.success === false) {
+        throw new Error(String(payload.error || "Chart request failed."));
+      }
 
-  const planets = payload?.data?.planets;
-  if (!planets || typeof planets !== "object") {
-    throw new Error("Chart response missing planets.");
-  }
+      const planets = payload?.data?.planets;
+      if (!planets || typeof planets !== "object") {
+        throw new Error("Chart response missing planets.");
+      }
 
-  const out = {};
-  for (const { key } of PLANET_STACK) {
-    const p = planets[key];
-    const lng = absoluteTropicalLongitudeDeg(p);
-    if (lng === null) {
-      throw new Error(`Could not read tropical longitude for ${key}.`);
+      const out = {};
+      for (const { key } of PLANET_STACK) {
+        const p = planets[key];
+        const lng = absoluteTropicalLongitudeDeg(p);
+        if (lng === null) {
+          throw new Error(`Could not read tropical longitude for ${key}.`);
+        }
+        out[key] = lng;
+      }
+      return out;
+    } catch (error) {
+      lastError = error;
+      if (attempt < CHART_FETCH_MAX_ATTEMPTS) {
+        await new Promise((resolve) =>
+          setTimeout(resolve, CHART_FETCH_RETRY_DELAY_MS),
+        );
+      }
     }
-    out[key] = lng;
   }
-  return out;
+  throw lastError instanceof Error ? lastError : new Error("Chart request failed.");
 }
 
 async function loadPositions() {
@@ -539,7 +561,9 @@ const svgTitle = computed(() => {
         </span>
       </div>
     </div>
-    <p v-if="loadError" class="progress-arcs-error">{{ loadError }}</p>
+    <p v-if="loadError && size !== 'cover'" class="progress-arcs-error">
+      {{ loadError }}
+    </p>
   </div>
 </template>
 

@@ -21,13 +21,14 @@ import {
   buildDomPreviewContentFrameStyle,
   DEFAULT_DOM_PREVIEW_MARGIN_IN,
 } from "../imposition/domPreviewMargins";
+import { getZodiacKeysFromNames } from "../astrology/physisSymbolMap";
 import SignatureImpositionControls from "../components/SignatureImpositionControls.vue";
 import PdfOutputActions from "../components/PdfOutputActions.vue";
 import AstrologyEventsPanel from "../components/AstrologyEventsPanel.vue";
 import ProgressArcs from "../components/ProgressArcs.vue";
 
 const now = new Date();
-const defaultStartMonth = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}`;
+const defaultStartMonth = `${now.getFullYear()}-01`;
 const startMonth = ref(defaultStartMonth);
 
 const astrologyContext = ref({
@@ -75,6 +76,9 @@ const domPreviewMarginLeft = ref(DEFAULT_DOM_PREVIEW_MARGIN_IN);
 const isGeneratingPdf = ref(false);
 const pdfError = ref("");
 const combinedPdfUrl = ref("");
+const isGeneratingCoverPdf = ref(false);
+const coverPdfError = ref("");
+const coverPdfUrl = ref("");
 const pageDepthInches = ref(0.25 / 25);
 const enableCreepNudge = ref(true);
 const rasterizedPageFiles = ref([]);
@@ -133,6 +137,39 @@ const fiveYearMonthPages = computed(() => {
   return pages;
 });
 
+const zodiacLegendItems = computed(() => {
+  const zodiac = getZodiacKeysFromNames();
+  return [
+    ["Aries", zodiac.Aries],
+    ["Taurus", zodiac.Taurus],
+    ["Gemini", zodiac.Gemini],
+    ["Cancer", zodiac.Cancer],
+    ["Leo", zodiac.Leo],
+    ["Virgo", zodiac.Virgo],
+    ["Libra", zodiac.Libra],
+    ["Scorpio", zodiac.Scorpio],
+    ["Sagittarius", zodiac.Sagittarius],
+    ["Capricorn", zodiac.Capricorn],
+    ["Aquarius", zodiac.Aquarius],
+    ["Pisces", zodiac.Pisces],
+  ].map(([name, symbol]) => ({ name, symbol }));
+});
+
+const planetLegendItems = computed(() => {
+  return [
+    { key: "sun", name: "Sun", color: "#e6c229" },
+    { key: "moon", name: "Moon", color: "#8f959d" },
+    { key: "mercury", name: "Mercury", color: "#2d8f4e" },
+    { key: "venus", name: "Venus", color: "#e89bb8" },
+    { key: "mars", name: "Mars", color: "#c12f2f" },
+    { key: "jupiter", name: "Jupiter", color: "#e89b2a" },
+    { key: "saturn", name: "Saturn", color: "#1a1a1a" },
+    { key: "uranus", name: "Uranus", color: "#5eb8e8" },
+    { key: "neptune", name: "Neptune", color: "#5b3bbf" },
+    { key: "pluto", name: "Pluto", color: "#7a4a2a" },
+  ];
+});
+
 const fiveYearRangeForPanel = computed(() => {
   const pages = fiveYearMonthPages.value;
   if (pages.length < 60) {
@@ -144,8 +181,17 @@ const fiveYearRangeForPanel = computed(() => {
   };
 });
 
-const calendarPages = computed(() =>
-  fiveYearMonthPages.value.flatMap((monthPage, index) => {
+const coverYearLabel = computed(() => {
+  const parsed = parseMonthInput(startMonth.value);
+  if (!parsed) {
+    return "";
+  }
+  const startYear = parsed.year;
+  return `${startYear} - ${startYear + 4}`;
+});
+
+const calendarPages = computed(() => [
+  ...fiveYearMonthPages.value.flatMap((monthPage, index) => {
     const monthEntry = {
       ...monthPage,
       rasterKey: `${monthPage.key}-month`,
@@ -163,7 +209,24 @@ const calendarPages = computed(() =>
       monthEntry,
     ];
   }),
-);
+  {
+    key: "end-blank-before-legend",
+    rasterKey: "end-blank-before-legend",
+    kind: "blank",
+  },
+  {
+    key: "end-blank-before-legend-2",
+    rasterKey: "end-blank-before-legend-2",
+    kind: "blank",
+  },
+  {
+    key: "end-blank-before-legend-3",
+    rasterKey: "end-blank-before-legend-3",
+    kind: "blank",
+  },
+  { key: "end-legend", rasterKey: "end-legend", kind: "legend" },
+  { key: "end-blank-final", rasterKey: "end-blank-final", kind: "blank" },
+]);
 
 const uploadedPageCount = computed(() => calendarPages.value.length);
 const effectivePageCount = computed(() => calendarPages.value.length);
@@ -329,6 +392,8 @@ onMounted(() => {
 onUnmounted(() => {
   window.removeEventListener("pointerup", onOutputLayoutPointerUpGlobal);
   window.removeEventListener("pointercancel", onOutputLayoutPointerUpGlobal);
+  revokeCombinedPdfUrl();
+  revokeCoverPdfUrl();
 });
 
 function buildSheetSlot(signatureOffset, relativePageNumber) {
@@ -531,6 +596,13 @@ function revokeCombinedPdfUrl() {
   }
 }
 
+function revokeCoverPdfUrl() {
+  if (coverPdfUrl.value) {
+    URL.revokeObjectURL(coverPdfUrl.value);
+    coverPdfUrl.value = "";
+  }
+}
+
 const combinedPdfPageCount = computed(() => impositionOutputs.value.length * 2);
 const rasterizeProgressPercent = computed(() => {
   if (rasterizeProgressTotal.value <= 0) {
@@ -590,6 +662,16 @@ function downloadCombinedPdf() {
   triggerDownload(
     combinedPdfUrl.value,
     `five-year-flip-output-${pageCount}p.pdf`,
+  );
+}
+
+function downloadCoverPdf() {
+  if (!coverPdfUrl.value) {
+    return;
+  }
+  triggerDownload(
+    coverPdfUrl.value,
+    "five-year-flip-cover-1-side-4-sheets.pdf",
   );
 }
 
@@ -653,6 +735,7 @@ async function drawImpositionSide(
 }
 
 const dateCardRefs = ref({});
+const coverCardRefs = ref({});
 
 function setDateCardRef(dateKey, element) {
   if (element) {
@@ -661,6 +744,22 @@ function setDateCardRef(dateKey, element) {
   }
   delete dateCardRefs.value[dateKey];
 }
+
+function setCoverCardRef(pageKey, element) {
+  if (element) {
+    coverCardRefs.value[pageKey] = element;
+    return;
+  }
+  delete coverCardRefs.value[pageKey];
+}
+
+const coverRasterPages = computed(() =>
+  Array.from({ length: 16 }, (_, index) => ({
+    key: `cover-${index + 1}`,
+    kind: index % 2 === 0 ? "title" : "blank",
+    label: coverYearLabel.value,
+  })),
+);
 
 async function rasterizeCalendarPages() {
   await nextTick();
@@ -714,6 +813,49 @@ async function rasterizeCalendarPages() {
   }
 
   rasterizedPageFiles.value = files;
+}
+
+async function rasterizeCoverPages() {
+  await nextTick();
+  const files = [];
+
+  for (
+    let pageIndex = 0;
+    pageIndex < coverRasterPages.value.length;
+    pageIndex += 1
+  ) {
+    const pageData = coverRasterPages.value[pageIndex];
+    const card = coverCardRefs.value[pageData.key];
+    if (!card) {
+      throw new Error("Cover page card is not ready for rasterization.");
+    }
+    const canvas = await html2canvas(card, {
+      scale: 2,
+      useCORS: true,
+      allowTaint: false,
+      backgroundColor: "#ffffff",
+      logging: false,
+    });
+    const blob = await new Promise((resolve, reject) => {
+      canvas.toBlob((result) => {
+        if (!result) {
+          reject(new Error("Could not convert cover page to image."));
+          return;
+        }
+        resolve(result);
+      }, "image/png");
+    });
+    files.push(
+      new File(
+        [blob],
+        `cover-page-${String(pageIndex + 1).padStart(4, "0")}.png`,
+        {
+          type: "image/png",
+        },
+      ),
+    );
+  }
+  return files;
 }
 
 async function generatePdfOutput() {
@@ -773,6 +915,63 @@ async function generatePdfOutput() {
         : "Could not generate PDF output from calendar pages.";
   } finally {
     isGeneratingPdf.value = false;
+  }
+}
+
+async function generateCoverPdfOutput() {
+  if (!coverYearLabel.value) {
+    coverPdfError.value = "Choose a valid start month to create the cover.";
+    return;
+  }
+
+  isGeneratingCoverPdf.value = true;
+  coverPdfError.value = "";
+  revokeCoverPdfUrl();
+
+  try {
+    const coverFiles = await rasterizeCoverPages();
+    const coverOutputs = buildImpositionOutputs({
+      templateMatchesCurrentInputs: true,
+      outputLayoutPattern: { sheetCols: 1, sheetRows: 4 },
+      numberOfSignatures: 1,
+      sheetsPerSignature: 4,
+      foldAxis: outputFoldAxis.value,
+      buildSheetSlot: (signatureOffset, relativePageNumber) => {
+        const absolutePageNumber = signatureOffset + relativePageNumber;
+        const file = coverFiles[absolutePageNumber - 1] ?? null;
+        return {
+          relativePageNumber,
+          absolutePageNumber,
+          fileName: file?.name ?? "Blank",
+          file,
+          hasSourcePage: Boolean(file),
+        };
+      },
+    });
+
+    const pdf = await PDFDocument.create();
+    const page = pdf.addPage([toPoints(8.5), toPoints(11)]);
+    if (!coverOutputs[0]) {
+      throw new Error("Could not build cover imposition layout.");
+    }
+    await drawImpositionSide(
+      page,
+      pdf,
+      coverOutputs[0].front,
+      PLATE_FRONT_ROTATION_DEG,
+    );
+
+    const bytes = await pdf.save();
+    coverPdfUrl.value = URL.createObjectURL(
+      new Blob([bytes], { type: "application/pdf" }),
+    );
+  } catch (error) {
+    coverPdfError.value =
+      error instanceof Error
+        ? error.message
+        : "Could not generate cover PDF output.";
+  } finally {
+    isGeneratingCoverPdf.value = false;
   }
 }
 
@@ -1066,6 +1265,30 @@ function toDateInputValue(date) {
       />
 
       <PdfOutputActions :state="pdfOutputState" :handlers="pdfOutputHandlers" />
+      <div class="actions">
+        <button
+          type="button"
+          class="primary-button"
+          :disabled="isGeneratingCoverPdf"
+          @click="generateCoverPdfOutput"
+        >
+          {{ isGeneratingCoverPdf ? "Generating..." : "Generate Cover" }}
+        </button>
+        <small v-if="coverPdfError" class="error-text">{{
+          coverPdfError
+        }}</small>
+      </div>
+      <div v-if="coverPdfUrl" class="download-group">
+        <button type="button" class="small-button" @click="downloadCoverPdf">
+          Download Cover PDF
+        </button>
+      </div>
+      <div v-if="coverPdfUrl" class="pdf-preview-single">
+        <section class="pdf-pane pdf-pane-wide">
+          <h4>Cover PDF preview</h4>
+          <iframe :src="coverPdfUrl" title="Cover PDF Preview"></iframe>
+        </section>
+      </div>
 
       <section class="calendar-pages-section">
         <h2>Calendar DOM Pages</h2>
@@ -1075,8 +1298,9 @@ function toDateInputValue(date) {
           <strong>Span:</strong> {{ astrologyTimeframeLabel }}
         </p>
         <p class="note">
-          120 pages total: one blank page before each monthly progress page.
-          Each card matches the page aspect ratio and is rasterized at PDF
+          123 pages total: one blank page before each monthly progress page,
+          then a blank page, legend page, and final brand page at the end. Each
+          card matches the page aspect ratio and is rasterized at PDF
           generation.
         </p>
         <div class="calendar-preview-calibration">
@@ -1148,6 +1372,35 @@ function toDateInputValue(date) {
                 v-if="page.kind === 'blank'"
                 class="five-year-flip-blank-page"
               />
+              <div
+                v-else-if="page.kind === 'legend'"
+                class="five-year-flip-legend-page"
+              >
+                <div class="five-year-flip-legend-rotated">
+                  <p class="five-year-flip-legend-brand">
+                    GARLANDCALENDARS.COM
+                  </p>
+                  <div class="five-year-flip-legend-columns">
+                    <ul class="five-year-flip-legend-list">
+                      <li v-for="item in zodiacLegendItems" :key="item.name">
+                        <span class="five-year-flip-legend-glyph">{{
+                          item.symbol
+                        }}</span>
+                        <span>{{ item.name }}</span>
+                      </li>
+                    </ul>
+                    <ul class="five-year-flip-legend-list">
+                      <li v-for="item in planetLegendItems" :key="item.key">
+                        <span
+                          class="five-year-flip-legend-dot"
+                          :style="{ backgroundColor: item.color }"
+                        />
+                        <span>{{ item.name }}</span>
+                      </li>
+                    </ul>
+                  </div>
+                </div>
+              </div>
               <div v-else class="five-year-flip-inner">
                 <h2 class="five-year-flip-title">{{ page.monthLabel }}</h2>
                 <div
@@ -1169,6 +1422,26 @@ function toDateInputValue(date) {
           </article>
         </div>
       </section>
+    </section>
+    <section
+      class="cover-raster-source calendar-pages-grid calendar-pages-grid--true-size"
+      :style="calendarPagesPreviewStyle"
+      aria-hidden="true"
+    >
+      <article
+        v-for="page in coverRasterPages"
+        :key="page.key"
+        :ref="(el) => setCoverCardRef(page.key, el)"
+        :style="calendarTrimGuideStyle"
+        class="calendar-day-card calendar-day-card--rasterizing"
+      >
+        <div class="calendar-content-frame" :style="contentFrameBoxStyle">
+          <div v-if="page.kind === 'blank'" class="five-year-flip-blank-page" />
+          <div v-else class="five-year-flip-inner">
+            <h2 class="five-year-flip-title">{{ page.label }}</h2>
+          </div>
+        </div>
+      </article>
     </section>
   </main>
 </template>
@@ -1215,10 +1488,86 @@ function toDateInputValue(date) {
   height: 100%;
 }
 
+.five-year-flip-legend-page,
+.five-year-flip-brand-page {
+  position: relative;
+  width: 100%;
+  height: 100%;
+}
+
+.five-year-flip-legend-rotated {
+  position: absolute;
+  left: 1.06in;
+  top: 0.06in;
+  width: 2.45in;
+  height: 2.45in;
+  display: flex;
+  flex-direction: column;
+  justify-content: right;
+  gap: 1.25in;
+  transform: rotate(-90deg) translateX(-100%);
+  transform-origin: top left;
+  color: #1f2f55;
+}
+
+.five-year-flip-legend-columns {
+  width: 100%;
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  align-items: start;
+  gap: 0.08in;
+}
+
+.five-year-flip-legend-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: grid;
+  gap: 0.015in;
+}
+
+.five-year-flip-legend-list li {
+  display: grid;
+  grid-template-columns: 0.12in 1fr;
+  align-items: center;
+  gap: 0.03in;
+  font-size: clamp(0.64rem, 1.7vw, 0.8rem);
+  font-weight: 700;
+  letter-spacing: 0.03em;
+  line-height: 1;
+  text-transform: uppercase;
+  white-space: nowrap;
+}
+
+.five-year-flip-legend-glyph {
+  font-family: Physis, serif;
+  font-size: 1.08em;
+  line-height: 1;
+  text-align: center;
+  text-transform: none;
+}
+
+.five-year-flip-legend-dot {
+  display: inline-block;
+  width: 0.085in;
+  height: 0.085in;
+  border-radius: 999px;
+}
+
+.five-year-flip-legend-brand {
+  margin: 0;
+  font-size: clamp(0.64rem, 1.7vw, 0.8rem);
+  font-weight: 700;
+  letter-spacing: 0.03em;
+  line-height: 1;
+  text-transform: uppercase;
+  white-space: nowrap;
+}
+
 .five-year-flip-title {
   margin: 0;
   position: absolute;
-  left: 0.06in;
+  left: 1.06in;
   top: 0.06in;
   width: 1.25in;
   font-size: clamp(0.58rem, 1.5vw, 0.72rem);
@@ -1337,5 +1686,15 @@ function toDateInputValue(date) {
   outline: none;
   box-shadow: none;
   overflow: hidden;
+}
+
+.cover-raster-source {
+  position: fixed;
+  left: -10000px;
+  top: 0;
+  width: max-content;
+  max-width: none;
+  pointer-events: none;
+  opacity: 1;
 }
 </style>

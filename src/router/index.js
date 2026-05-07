@@ -9,12 +9,14 @@ import BasicWeeklyAstrologyCalendarView from "../views/BasicWeeklyAstrologyCalen
 import DailyMoonCalendarView from "../views/DailyMoonCalendarView.vue";
 import AshsDailyPlannerView from "../views/AshsDailyPlannerView.vue";
 import FiveYearFlipView from "../views/FiveYearFlipView.vue";
+import FlatFitView from "../views/FlatFitView.vue";
 import PinterestHubView from "../views/PinterestHubView.vue";
 import PinterestBoardPinsBookletView from "../views/PinterestBoardPinsBookletView.vue";
 import PinterestOAuthCallbackView from "../views/PinterestOAuthCallbackView.vue";
 
 const routes = [
   { path: "/", name: "signatures", component: SignaturesView },
+  { path: "/flat-fit", name: "flat-fit", component: FlatFitView },
   { path: "/calendars", name: "calendars", component: CalendarsView },
   { path: "/calendars/basic", name: "calendars-basic", component: BasicCalendarView },
   {
