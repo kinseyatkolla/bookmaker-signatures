@@ -10,6 +10,8 @@ import DailyMoonCalendarView from "../views/DailyMoonCalendarView.vue";
 import AshsDailyPlannerView from "../views/AshsDailyPlannerView.vue";
 import FiveYearFlipView from "../views/FiveYearFlipView.vue";
 import FlatFitView from "../views/FlatFitView.vue";
+import PoliticalHubView from "../views/PoliticalHubView.vue";
+import PrinciplesOfCommunismView from "../views/PrinciplesOfCommunismView.vue";
 import PinterestHubView from "../views/PinterestHubView.vue";
 import PinterestBoardPinsBookletView from "../views/PinterestBoardPinsBookletView.vue";
 import PinterestOAuthCallbackView from "../views/PinterestOAuthCallbackView.vue";
@@ -46,6 +48,12 @@ const routes = [
   },
   { path: "/folded-zine-1", name: "folded-zine-1", component: FoldedZine1View },
   { path: "/folded-zine-2", name: "folded-zine-2", component: FoldedZine2View },
+  { path: "/political", name: "political", component: PoliticalHubView },
+  {
+    path: "/political/principles-of-communism",
+    name: "political-principles-of-communism",
+    component: PrinciplesOfCommunismView,
+  },
   { path: "/pinterest", name: "pinterest", component: PinterestHubView },
   {
     path: "/pinterest/board-pins-booklet",

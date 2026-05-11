@@ -10,6 +10,7 @@ import { RouterLink, RouterView } from "vue-router";
         <RouterLink to="/" class="nav-link">Base Signatures</RouterLink>
         <RouterLink to="/flat-fit" class="nav-link">Flat Fit</RouterLink>
         <RouterLink to="/calendars" class="nav-link">Calendars</RouterLink>
+        <RouterLink to="/political" class="nav-link">Political</RouterLink>
         <RouterLink to="/pinterest" class="nav-link">Pinterest</RouterLink>
         <RouterLink to="/folded-zine-1" class="nav-link"
           >Folded Zine</RouterLink
