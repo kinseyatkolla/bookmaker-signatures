@@ -34,6 +34,7 @@ import {
   getZodiacKeysFromNames,
   getZodiacUnicodeFallback,
 } from "../astrology/physisSymbolMap";
+import garlandLogoUrl from "../assets/garlandlogo.png";
 
 const props = defineProps({
   pageTitle: {
@@ -74,17 +75,86 @@ const props = defineProps({
   },
 });
 
-const today = new Date();
-const plusThirty = new Date(today);
-plusThirty.setDate(today.getDate() + 30);
+const PLANNER_MONTHS_AHEAD = 36;
 
-const startDate = ref(toDateInputValue(today));
-const endDate = ref(toDateInputValue(plusThirty));
+function plannerMonthKeyFromDate(d) {
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}`;
+}
+
+function parsePlannerMonthKey(key) {
+  const [y, m] = String(key || "")
+    .split("-")
+    .map(Number);
+  if (!Number.isFinite(y) || !Number.isFinite(m) || m < 1 || m > 12) {
+    return null;
+  }
+  return { y, m };
+}
+
+function plannerMonthOptionLabel(y, m) {
+  const d = new Date(y, m - 1, 1);
+  const monthLong = d.toLocaleDateString("en-US", { month: "long" });
+  return `${monthLong.toUpperCase()} ${y}`;
+}
+
+function formatIsoDateKey(date) {
+  const year = date.getFullYear();
+  const month = String(date.getMonth() + 1).padStart(2, "0");
+  const day = String(date.getDate()).padStart(2, "0");
+  return `${year}-${month}-${day}`;
+}
+
+const plannerMonthOptions = computed(() => {
+  const items = [];
+  const now = new Date();
+  let y = now.getFullYear();
+  let mo = now.getMonth() + 1;
+  for (let i = 0; i < PLANNER_MONTHS_AHEAD; i += 1) {
+    items.push({
+      value: `${y}-${String(mo).padStart(2, "0")}`,
+      label: plannerMonthOptionLabel(y, mo),
+    });
+    mo += 1;
+    if (mo > 12) {
+      mo = 1;
+      y += 1;
+    }
+  }
+  return items;
+});
+
+const selectedPlannerMonthKey = ref(plannerMonthKeyFromDate(new Date()));
+
+watch(
+  plannerMonthOptions,
+  (opts) => {
+    if (!opts.length) return;
+    if (!opts.some((o) => o.value === selectedPlannerMonthKey.value)) {
+      selectedPlannerMonthKey.value = opts[0].value;
+    }
+  },
+  { immediate: true },
+);
+
+const startDate = computed(() => {
+  const parsed = parsePlannerMonthKey(selectedPlannerMonthKey.value);
+  if (!parsed) return "";
+  const { y, m } = parsed;
+  return `${y}-${String(m).padStart(2, "0")}-01`;
+});
+
+const endDate = computed(() => {
+  const parsed = parsePlannerMonthKey(selectedPlannerMonthKey.value);
+  if (!parsed) return "";
+  const { y, m } = parsed;
+  const last = new Date(y, m, 0);
+  return formatIsoDateKey(last);
+});
 const coverTitleOverride = ref("");
 
 const sheetsPerSignature = ref(4);
 const numberOfSignatures = ref(1);
-const signatureCalcMode = ref("sheets-fixed");
+const signatureCalcMode = ref("signatures-fixed");
 const outputWidth = ref(8.5);
 const outputHeight = ref(11);
 const pageWidth = ref(props.defaultPageWidth);
@@ -101,16 +171,16 @@ const PLATE_BACK_ROTATION_DEG = -90;
 const cropMarkOffset = ref(0.08);
 const cropMarkLength = ref(0.18);
 const showCropMarks = ref(true);
-const bleedTop = ref(0);
-const bleedRight = ref(0.25);
-const bleedBottom = ref(0);
-const bleedLeft = ref(0.25);
-const horizontalGap = ref(props.defaultHorizontalGap);
-const verticalGap = ref(props.defaultVerticalGap);
-const domPreviewMarginTop = ref(DEFAULT_DOM_PREVIEW_MARGIN_IN);
-const domPreviewMarginRight = ref(DEFAULT_DOM_PREVIEW_MARGIN_IN);
-const domPreviewMarginBottom = ref(DEFAULT_DOM_PREVIEW_MARGIN_IN);
-const domPreviewMarginLeft = ref(DEFAULT_DOM_PREVIEW_MARGIN_IN);
+const bleedTop = ref(0.125);
+const bleedRight = ref(0.125);
+const bleedBottom = ref(0.125);
+const bleedLeft = ref(0.125);
+const horizontalGap = ref(1.5);
+const verticalGap = ref(0.25);
+const domPreviewMarginTop = ref(0.125);
+const domPreviewMarginRight = ref(0.125);
+const domPreviewMarginBottom = ref(0.125);
+const domPreviewMarginLeft = ref(0.125);
 const isGeneratingPdf = ref(false);
 const pdfError = ref("");
 const combinedPdfUrl = ref("");
@@ -283,7 +353,15 @@ const calendarRasterPages = computed(() => {
       locationLine,
       natalLine,
     },
+    {
+      key: "blank-after-front-cover",
+      kind: "blank",
+    },
     ...dayCalendarPages.value.map((page) => ({ ...page, kind: "day" })),
+    {
+      key: "blank-before-back-cover",
+      kind: "blank",
+    },
     {
       key: "cover-back",
       kind: "cover-back",
@@ -795,7 +873,10 @@ async function drawImpositionSide(
       bottom: bleedBottom.value,
       left: bleedLeft.value,
     },
-    pageTrimInches: { width: Number(pageWidth.value), height: Number(pageHeight.value) },
+    pageTrimInches: {
+      width: Number(pageWidth.value),
+      height: Number(pageHeight.value),
+    },
     getSlotOffset: ({ slot, foldHorizontal, pageIndexWithinSheet }) =>
       enableCreepNudge.value
         ? getSheetCreepOffsetPoints({
@@ -1149,7 +1230,41 @@ const moonPhasePngUrlByTithi = (() => {
   return byNumber;
 })();
 
-const coverMoonGridTithis = Array.from({ length: 30 }, (_, index) => index + 1);
+const coverMoonGridTithis = computed(() => {
+  const allTithis = Array.from({ length: 30 }, (_, index) => index + 1);
+  const firstDateKey = String(startDate.value || "");
+  const firstDayDetails = dayTithiDetails(firstDateKey);
+  const tiedTithis = Object.entries(firstDayDetails.hourCounts || {})
+    .map(([tithi, hours]) => ({
+      tithi: Number(tithi),
+      hours: Number(hours) || 0,
+    }))
+    .filter(
+      (entry) =>
+        Number.isFinite(entry.tithi) && entry.tithi >= 1 && entry.tithi <= 30,
+    );
+
+  let startTithi = 1;
+  if (tiedTithis.length) {
+    const maxHours = Math.max(...tiedTithis.map((entry) => entry.hours));
+    startTithi =
+      tiedTithis
+        .filter((entry) => entry.hours === maxHours)
+        .sort((a, b) => a.tithi - b.tithi)[0]?.tithi || 1;
+  } else if (
+    Number.isFinite(firstDayDetails.primaryTithi) &&
+    firstDayDetails.primaryTithi >= 1 &&
+    firstDayDetails.primaryTithi <= 30
+  ) {
+    startTithi = firstDayDetails.primaryTithi;
+  }
+
+  const startIndex = allTithis.indexOf(startTithi);
+  if (startIndex <= 0) {
+    return allTithis;
+  }
+  return [...allTithis.slice(startIndex), ...allTithis.slice(0, startIndex)];
+});
 
 function moonIconSrc(tithiNumber) {
   if (typeof tithiNumber !== "number" || tithiNumber < 1 || tithiNumber > 30) {
@@ -1536,28 +1651,27 @@ function toDateInputValue(date) {
         >
       </div>
       <p class="subtitle">
-        Build one DOM card per day in a date range, rasterize those cards, and
-        run them through the existing imposition engine.
+        Build one DOM card per day for the selected calendar month, rasterize
+        those cards, and run them through the existing imposition engine.
       </p>
 
       <div class="grid date-range-grid">
-        <label class="field" for="basic-calendar-start-date">
-          <span>Start Date</span>
-          <input
-            id="basic-calendar-start-date"
-            v-model="startDate"
-            name="basic-calendar-start-date"
-            type="date"
-          />
-        </label>
-        <label class="field" for="basic-calendar-end-date">
-          <span>End Date</span>
-          <input
-            id="basic-calendar-end-date"
-            v-model="endDate"
-            name="basic-calendar-end-date"
-            type="date"
-          />
+        <label class="field" for="daily-moon-planner-month">
+          <span>Planner month</span>
+          <select
+            id="daily-moon-planner-month"
+            v-model="selectedPlannerMonthKey"
+            name="daily-moon-planner-month"
+            class="planner-month-select"
+          >
+            <option
+              v-for="opt in plannerMonthOptions"
+              :key="opt.value"
+              :value="opt.value"
+            >
+              {{ opt.label }}
+            </option>
+          </select>
         </label>
         <label class="field" for="basic-calendar-cover-title-override">
           <span>Cover Title Override</span>
@@ -1616,11 +1730,14 @@ function toDateInputValue(date) {
           <div class="calendar-preview-calibration-row">
             <span
               class="calendar-calibration-ruler"
-              :style="{ width: `${PREVIEW_CALIBRATION_REFERENCE_INCHES * 96 * previewPhysicalScale}px` }"
+              :style="{
+                width: `${PREVIEW_CALIBRATION_REFERENCE_INCHES * 96 * previewPhysicalScale}px`,
+              }"
               aria-hidden="true"
             ></span>
             <span class="calendar-calibration-ruler-label"
-              >Measure this line (target {{ PREVIEW_CALIBRATION_REFERENCE_INCHES }}")</span
+              >Measure this line (target
+              {{ PREVIEW_CALIBRATION_REFERENCE_INCHES }}")</span
             >
           </div>
           <div class="calendar-preview-calibration-row">
@@ -1633,10 +1750,18 @@ function toDateInputValue(date) {
                 step="0.01"
               />
             </label>
-            <button type="button" class="secondary-button" @click="applyPreviewCalibration">
+            <button
+              type="button"
+              class="secondary-button"
+              @click="applyPreviewCalibration"
+            >
               Calibrate
             </button>
-            <button type="button" class="secondary-button" @click="resetPreviewCalibration">
+            <button
+              type="button"
+              class="secondary-button"
+              @click="resetPreviewCalibration"
+            >
               Reset
             </button>
           </div>
@@ -1660,54 +1785,121 @@ function toDateInputValue(date) {
             ]"
           >
             <div class="calendar-trim-guide" aria-hidden="true" />
-            <div
-              class="calendar-content-frame"
-              :style="contentFrameBoxStyle"
-            >
-            <section
-              v-if="page.kind === 'cover-front'"
-              :class="[
-                'calendar-cover-page',
-                'calendar-cover-page--front',
-                rasterizeProgressActive
-                  ? 'calendar-cover-page--rasterizing'
-                  : '',
-              ]"
-            >
-              <p class="calendar-cover-title">{{ page.coverTitle }}</p>
-              <div class="calendar-cover-moon-grid" aria-hidden="true">
-                <img
-                  v-for="tithi in coverMoonGridTithis"
-                  :key="`cover-moon-${tithi}`"
-                  class="calendar-cover-moon-grid-image"
-                  :src="moonIconSrc(tithi)"
-                  alt=""
-                />
-              </div>
-              <div class="calendar-cover-footer">
-                <p class="calendar-cover-line">{{ page.locationLine }}</p>
-                <p v-if="page.natalLine" class="calendar-cover-line">
-                  {{ page.natalLine }}
-                </p>
-              </div>
-            </section>
-            <section
-              v-else-if="page.kind === 'cover-back'"
-              :class="[
-                'calendar-cover-page',
-                'calendar-cover-page--back',
-                rasterizeProgressActive
-                  ? 'calendar-cover-page--rasterizing'
-                  : '',
-              ]"
-            >
-              <div class="calendar-cover-footer">
-                <p class="calendar-cover-line">{{ page.imprintText }}</p>
-              </div>
-            </section>
-            <template v-else>
-              <template v-if="props.isMoonCalendarMode">
+            <div class="calendar-content-frame" :style="contentFrameBoxStyle">
+              <section
+                v-if="page.kind === 'cover-front'"
+                :class="[
+                  'calendar-cover-page',
+                  'calendar-cover-page--front',
+                  rasterizeProgressActive
+                    ? 'calendar-cover-page--rasterizing'
+                    : '',
+                ]"
+              >
+                <p class="calendar-cover-title">{{ page.coverTitle }}</p>
+                <div class="calendar-cover-moon-grid" aria-hidden="true">
+                  <img
+                    v-for="tithi in coverMoonGridTithis"
+                    :key="`cover-moon-${tithi}`"
+                    class="calendar-cover-moon-grid-image"
+                    :src="moonIconSrc(tithi)"
+                    alt=""
+                  />
+                </div>
+                <div class="calendar-cover-footer">
+                  <p class="calendar-cover-line">{{ page.locationLine }}</p>
+                  <p v-if="page.natalLine" class="calendar-cover-line">
+                    {{ page.natalLine }}
+                  </p>
+                </div>
+              </section>
+              <section
+                v-else-if="page.kind === 'cover-back'"
+                :class="[
+                  'calendar-cover-page',
+                  'calendar-cover-page--back',
+                  rasterizeProgressActive
+                    ? 'calendar-cover-page--rasterizing'
+                    : '',
+                ]"
+              >
+                <div class="calendar-cover-footer">
+                  <img
+                    class="calendar-cover-logo"
+                    :src="garlandLogoUrl"
+                    alt="Garland Calendars"
+                  />
+                </div>
+              </section>
+              <section
+                v-else-if="page.kind === 'blank'"
+                :class="[
+                  'calendar-cover-page',
+                  rasterizeProgressActive
+                    ? 'calendar-cover-page--rasterizing'
+                    : '',
+                ]"
+              ></section>
+              <template v-else>
+                <template v-if="props.isMoonCalendarMode">
+                  <header
+                    class="day-page-header"
+                    :class="{
+                      'day-page-header--moon-mode': props.isMoonCalendarMode,
+                    }"
+                  >
+                    <p
+                      class="header-day"
+                      :class="{
+                        'header-day--moon-mode': props.isMoonCalendarMode,
+                      }"
+                    >
+                      {{ page.dayNumber }} {{ page.dayLongLabel }}
+                    </p>
+                    <span
+                      v-if="dayFooterSunMoonGlyphs(page.key)"
+                      class="moon-dignity-inline-glyph moon-dignity-inline-glyph--day-corner"
+                      :class="
+                        dayFooterSunMoonGlyphs(page.key).moon.elementClass
+                      "
+                    >
+                      <span class="glyph-char">{{
+                        dayFooterSunMoonGlyphs(page.key).moon.planetKey ||
+                        dayFooterSunMoonGlyphs(page.key).moon.planetUnicode
+                      }}</span>
+                      <span class="glyph-char">{{
+                        dayFooterSunMoonGlyphs(page.key).moon.zodiacKey ||
+                        dayFooterSunMoonGlyphs(page.key).moon.zodiacUnicode
+                      }}</span>
+                    </span>
+                  </header>
+                  <p class="calendar-day-iso">{{ page.fullDateLabel }}</p>
+                </template>
+                <div
+                  v-if="
+                    props.isMoonCalendarMode &&
+                    moonIconSrc(dayTithiDetails(page.key).primaryTithi)
+                  "
+                  class="moon-focus-wrap"
+                  :class="{
+                    'moon-focus-wrap--eclipse': dayHasEclipse(page.key),
+                  }"
+                >
+                  <img
+                    class="moon-focus-icon"
+                    :src="moonIconSrc(dayTithiDetails(page.key).primaryTithi)"
+                    alt=""
+                    :title="`Primary tithi ${dayTithiDetails(page.key).primaryTithi}`"
+                  />
+                  <p
+                    v-if="eclipseIndicatorLabel(page.key)"
+                    class="moon-eclipse-indicator"
+                  >
+                    {{ eclipseIndicatorLabel(page.key) }}
+                  </p>
+                </div>
                 <header
+                  v-if="!props.isMoonCalendarMode"
                   class="day-page-header"
                   :class="{
                     'day-page-header--moon-mode': props.isMoonCalendarMode,
@@ -1735,371 +1927,316 @@ function toDateInputValue(date) {
                     {{ topRightTithiLabel(page.key) }}
                   </span>
                 </header>
-                <p class="calendar-day-iso">{{ page.fullDateLabel }}</p>
-              </template>
-              <div
-                v-if="
-                  props.isMoonCalendarMode &&
-                  moonIconSrc(dayTithiDetails(page.key).primaryTithi)
-                "
-                class="moon-focus-wrap"
-                :class="{
-                  'moon-focus-wrap--eclipse': dayHasEclipse(page.key),
-                }"
-              >
-                <img
-                  class="moon-focus-icon"
-                  :src="moonIconSrc(dayTithiDetails(page.key).primaryTithi)"
-                  alt=""
-                  :title="`Primary tithi ${dayTithiDetails(page.key).primaryTithi}`"
-                />
+                <p v-if="!props.isMoonCalendarMode" class="calendar-day-iso">
+                  {{ page.fullDateLabel }}
+                </p>
                 <p
-                  v-if="eclipseIndicatorLabel(page.key)"
-                  class="moon-eclipse-indicator"
+                  v-if="
+                    !props.isMoonCalendarMode && eclipseIndicatorLabel(page.key)
+                  "
+                  class="page-eclipse-indicator page-eclipse-indicator--header"
                 >
                   {{ eclipseIndicatorLabel(page.key) }}
                 </p>
-              </div>
-              <header
-                v-if="!props.isMoonCalendarMode"
-                class="day-page-header"
-                :class="{
-                  'day-page-header--moon-mode': props.isMoonCalendarMode,
-                }"
-              >
-                <p
-                  class="header-day"
-                  :class="{
-                    'header-day--moon-mode': props.isMoonCalendarMode,
-                  }"
-                >
-                  {{ page.dayNumber }} {{ page.dayLongLabel }}
-                </p>
-                <span
-                  v-if="topRightTithiLabel(page.key)"
-                  class="tithi-tag tithi-tag--day-corner"
-                  :class="[
-                    `tithi-tag--${primaryTithiStep(page.key)?.colorKey || 'blue'}`,
-                    props.isMoonCalendarMode
-                      ? 'tithi-tag--day-corner-moon-mode'
-                      : '',
-                  ]"
-                  :title="`Tithi ${dayTithiDetails(page.key).primaryTithi} (${primaryTithiStep(page.key)?.name})`"
-                >
-                  {{ topRightTithiLabel(page.key) }}
-                </span>
-              </header>
-              <p v-if="!props.isMoonCalendarMode" class="calendar-day-iso">
-                {{ page.fullDateLabel }}
-              </p>
-              <p
-                v-if="
-                  !props.isMoonCalendarMode && eclipseIndicatorLabel(page.key)
-                "
-                class="page-eclipse-indicator page-eclipse-indicator--header"
-              >
-                {{ eclipseIndicatorLabel(page.key) }}
-              </p>
-              <div
-                v-if="
-                  !props.isMoonCalendarMode &&
-                  dayTithiDetails(page.key).tithiNumbers.length
-                "
-                class="calendar-day-tithis"
-              >
-                <span class="calendar-day-tithi-text">
-                  <template v-if="props.isMoonCalendarMode">
-                    {{ moonTithiInlineLabel(page.key) }}
-                  </template>
-                  <template
-                    v-else
-                    v-for="(tithiNumber, tithiIndex) in dayTithiDetails(
-                      page.key,
-                    ).tithiNumbers"
-                    :key="`${page.key}-tithi-label-${tithiNumber}`"
-                  >
-                    <span
-                      class="calendar-day-tithi-token"
-                      :class="`calendar-day-tithi-token--${
-                        getMoonTithiStep(tithiNumber)?.colorKey || 'blue'
-                      }`"
-                    >
-                      {{
-                        formatTithiSummary(
-                          tithiNumber,
-                          dayTithiDetails(page.key).hourCounts,
-                        )
-                      }}
-                    </span>
-                    <span
-                      v-if="
-                        tithiIndex <
-                        dayTithiDetails(page.key).tithiNumbers.length - 1
-                      "
-                      class="calendar-day-tithi-separator"
-                    ></span>
-                  </template>
-                </span>
-              </div>
-              <ul
-                class="event-list event-list--day"
-                :class="{
-                  'event-list--moon-mode': props.isMoonCalendarMode,
-                }"
-              >
-                <li
-                  v-if="
-                    props.isMoonCalendarMode && dayFooterSunMoonGlyphs(page.key)
-                  "
-                  class="event-block event-block--moon-inline-glyphs"
-                >
-                  <div class="moon-inline-glyphs-wrap">
-                    <div class="moon-dignity-wrap">
-                      <p
-                        v-for="(dignity, dignityIndex) in moonDignitiesForDay(
-                          page.key,
-                        )"
-                        :key="`${page.key}-moon-dignity-${dignity.type}-${dignityIndex}`"
-                        class="moon-dignity-line"
-                        :class="`moon-dignity-line--${dignity.type}`"
-                      >
-                        Moon in {{ dignity.type }} ({{ dignity.sign }})
-                      </p>
-                    </div>
-                    <span
-                      class="moon-dignity-inline-glyph"
-                      :class="
-                        dayFooterSunMoonGlyphs(page.key).moon.elementClass
-                      "
-                    >
-                      <span class="glyph-char">{{
-                        dayFooterSunMoonGlyphs(page.key).moon.planetKey ||
-                        dayFooterSunMoonGlyphs(page.key).moon.planetUnicode
-                      }}</span>
-                      <span class="glyph-char">{{
-                        dayFooterSunMoonGlyphs(page.key).moon.zodiacKey ||
-                        dayFooterSunMoonGlyphs(page.key).moon.zodiacUnicode
-                      }}</span>
-                    </span>
-                  </div>
-                </li>
-                <li
-                  v-for="event in dayEventsForDisplay(page)"
-                  :key="event.id"
-                  :class="[
-                    'event-block',
-                    props.isMoonCalendarMode &&
-                    (event.eventType === 'aspect' ||
-                      event.eventType === 'ingress')
-                      ? 'event-block--moon-aspect-ingress'
-                      : '',
-                  ]"
-                >
-                  <div
-                    v-if="
-                      event.glyphRows.length === 2 &&
-                      !shouldCondenseMoonEventRows(page)
-                    "
-                    class="event-glyphs event-glyphs--day-lead event-glyphs--aspect-inline"
-                  >
-                    <div
-                      class="glyph-row"
-                      :class="event.glyphRows[0].elementClass"
-                    >
-                      <span class="glyph-char">{{
-                        event.glyphRows[0].planetKey ||
-                        event.glyphRows[0].planetUnicode
-                      }}</span>
-                      <span
-                        v-if="!props.isMoonCalendarMode"
-                        class="glyph-char"
-                        >{{
-                          event.glyphRows[0].zodiacKey ||
-                          event.glyphRows[0].zodiacUnicode
-                        }}</span
-                      >
-                      <span class="glyph-row-degree"
-                        >{{ event.glyphRows[0].degree
-                        }}{{
-                          !props.isMoonCalendarMode
-                            ? ` ${event.glyphRows[0].signName}`
-                            : ""
-                        }}</span
-                      >
-                      <span
-                        v-if="props.isMoonCalendarMode"
-                        class="glyph-char"
-                        >{{
-                          event.glyphRows[0].zodiacKey ||
-                          event.glyphRows[0].zodiacUnicode
-                        }}</span
-                      >
-                    </div>
-                    <span
-                      v-if="event.aspectPhysisKey"
-                      class="glyph-aspect-char"
-                      aria-hidden="true"
-                      >{{ event.aspectPhysisKey }}</span
-                    >
-                    <div
-                      class="glyph-row"
-                      :class="event.glyphRows[1].elementClass"
-                    >
-                      <span class="glyph-char">{{
-                        event.glyphRows[1].planetKey ||
-                        event.glyphRows[1].planetUnicode
-                      }}</span>
-                      <span
-                        v-if="!props.isMoonCalendarMode"
-                        class="glyph-char"
-                        >{{
-                          event.glyphRows[1].zodiacKey ||
-                          event.glyphRows[1].zodiacUnicode
-                        }}</span
-                      >
-                      <span class="glyph-row-degree"
-                        >{{ event.glyphRows[1].degree
-                        }}{{
-                          !props.isMoonCalendarMode
-                            ? ` ${event.glyphRows[1].signName}`
-                            : ""
-                        }}</span
-                      >
-                      <span
-                        v-if="props.isMoonCalendarMode"
-                        class="glyph-char"
-                        >{{
-                          event.glyphRows[1].zodiacKey ||
-                          event.glyphRows[1].zodiacUnicode
-                        }}</span
-                      >
-                    </div>
-                  </div>
-                  <div
-                    v-else-if="
-                      event.glyphRows.length &&
-                      !shouldCondenseMoonEventRows(page)
-                    "
-                    class="event-glyphs event-glyphs--day-lead"
-                  >
-                    <div
-                      v-for="(row, rowIndex) in event.glyphRows"
-                      :key="`${event.id}-glyph-${rowIndex}`"
-                      class="glyph-row"
-                      :class="row.elementClass"
-                    >
-                      <span class="glyph-char">{{
-                        row.planetKey || row.planetUnicode
-                      }}</span>
-                      <span
-                        v-if="!props.isMoonCalendarMode"
-                        class="glyph-char"
-                        >{{ row.zodiacKey || row.zodiacUnicode }}</span
-                      >
-                      <span class="glyph-row-degree"
-                        >{{ row.degree
-                        }}{{
-                          !props.isMoonCalendarMode ? ` ${row.signName}` : ""
-                        }}</span
-                      >
-                      <span
-                        v-if="props.isMoonCalendarMode"
-                        class="glyph-char"
-                        >{{ row.zodiacKey || row.zodiacUnicode }}</span
-                      >
-                    </div>
-                  </div>
-                  <div class="event-title-row">
-                    <p
-                      class="event-title"
-                      :class="[
-                        event.eventType === 'natal transit'
-                          ? 'event-title--natal'
-                          : '',
-                        event.eventType === 'tithi transition'
-                          ? 'event-title--tithi-transition'
-                          : '',
-                        event.eventType === 'tithi transition'
-                          ? `event-title--tithi-${event.tithiColorKey || 'blue'}`
-                          : '',
-                        event.eventType === 'aspect' ||
-                        event.eventType === 'ingress' ||
-                        event.eventType === 'lunation'
-                          ? 'event-title--aspect'
-                          : '',
-                      ]"
-                    >
-                      {{ event.mainLabel }}
-                    </p>
-                    <p
-                      v-if="event.timestamp"
-                      class="event-time"
-                      :class="[
-                        props.isMoonCalendarMode &&
-                        event.eventType !== 'tithi transition'
-                          ? 'event-time--moon-mode'
-                          : '',
-                        event.eventType === 'tithi transition'
-                          ? 'event-time--tithi-transition'
-                          : '',
-                        event.eventType === 'tithi transition'
-                          ? `event-time--tithi-${event.tithiColorKey || 'blue'}`
-                          : '',
-                      ]"
-                    >
-                      {{ event.timestamp }}
-                    </p>
-                  </div>
-                </li>
-              </ul>
-              <footer class="page-day-footer">
                 <div
                   v-if="
-                    dayFooterSunMoonGlyphs(page.key) &&
-                    !props.isMoonCalendarMode
+                    !props.isMoonCalendarMode &&
+                    dayTithiDetails(page.key).tithiNumbers.length
                   "
-                  class="page-day-footer-glyphs"
-                  aria-label="Sun and Moon at local noon"
-                  :class="{
-                    'page-day-footer-glyphs--moon-mode':
-                      props.isMoonCalendarMode,
-                  }"
+                  class="calendar-day-tithis"
                 >
-                  <span
-                    v-if="!props.isMoonCalendarMode"
-                    class="page-day-footer-pair"
-                    :class="dayFooterSunMoonGlyphs(page.key).sun.elementClass"
-                  >
-                    <span class="glyph-char">{{
-                      dayFooterSunMoonGlyphs(page.key).sun.planetKey ||
-                      dayFooterSunMoonGlyphs(page.key).sun.planetUnicode
-                    }}</span>
-                    <span class="glyph-char">{{
-                      dayFooterSunMoonGlyphs(page.key).sun.zodiacKey ||
-                      dayFooterSunMoonGlyphs(page.key).sun.zodiacUnicode
-                    }}</span>
+                  <span class="calendar-day-tithi-text">
+                    <template v-if="props.isMoonCalendarMode">
+                      {{ moonTithiInlineLabel(page.key) }}
+                    </template>
+                    <template
+                      v-else
+                      v-for="(tithiNumber, tithiIndex) in dayTithiDetails(
+                        page.key,
+                      ).tithiNumbers"
+                      :key="`${page.key}-tithi-label-${tithiNumber}`"
+                    >
+                      <span
+                        class="calendar-day-tithi-token"
+                        :class="`calendar-day-tithi-token--${
+                          getMoonTithiStep(tithiNumber)?.colorKey || 'blue'
+                        }`"
+                      >
+                        {{
+                          formatTithiSummary(
+                            tithiNumber,
+                            dayTithiDetails(page.key).hourCounts,
+                          )
+                        }}
+                      </span>
+                      <span
+                        v-if="
+                          tithiIndex <
+                          dayTithiDetails(page.key).tithiNumbers.length - 1
+                        "
+                        class="calendar-day-tithi-separator"
+                      ></span>
+                    </template>
                   </span>
                 </div>
-                <span
-                  v-if="dayTithiDetails(page.key).primaryTithi"
-                  class="page-moon-wrap page-moon-wrap--footer"
-                  v-show="!props.isMoonCalendarMode"
+                <ul
+                  class="event-list event-list--day"
                   :class="{
-                    'page-moon-wrap--eclipse': dayHasEclipse(page.key),
+                    'event-list--moon-mode': props.isMoonCalendarMode,
                   }"
                 >
-                  <img
-                    v-if="moonIconSrc(dayTithiDetails(page.key).primaryTithi)"
-                    class="page-moon-icon page-moon-icon--footer"
-                    width="40"
-                    height="40"
-                    :src="moonIconSrc(dayTithiDetails(page.key).primaryTithi)"
-                    alt=""
-                    :title="`Primary tithi ${dayTithiDetails(page.key).primaryTithi}`"
-                  />
-                </span>
-              </footer>
-            </template>
+                  <li
+                    v-if="
+                      props.isMoonCalendarMode &&
+                      dayFooterSunMoonGlyphs(page.key)
+                    "
+                    class="event-block event-block--moon-inline-glyphs"
+                  >
+                    <div class="moon-inline-glyphs-wrap">
+                      <div class="moon-dignity-wrap">
+                        <p
+                          v-for="(dignity, dignityIndex) in moonDignitiesForDay(
+                            page.key,
+                          )"
+                          :key="`${page.key}-moon-dignity-${dignity.type}-${dignityIndex}`"
+                          class="moon-dignity-line"
+                          :class="`moon-dignity-line--${dignity.type}`"
+                        >
+                          Moon in {{ dignity.type }} ({{ dignity.sign }})
+                        </p>
+                      </div>
+                      <span
+                        v-if="topRightTithiLabel(page.key)"
+                        class="tithi-tag tithi-tag--day-corner"
+                        :class="[
+                          `tithi-tag--${primaryTithiStep(page.key)?.colorKey || 'blue'}`,
+                          props.isMoonCalendarMode
+                            ? 'tithi-tag--day-corner-moon-mode'
+                            : '',
+                        ]"
+                        :title="`Tithi ${dayTithiDetails(page.key).primaryTithi} (${primaryTithiStep(page.key)?.name})`"
+                      >
+                        {{ topRightTithiLabel(page.key) }}
+                      </span>
+                    </div>
+                  </li>
+                  <li
+                    v-for="event in dayEventsForDisplay(page)"
+                    :key="event.id"
+                    :class="[
+                      'event-block',
+                      props.isMoonCalendarMode &&
+                      (event.eventType === 'aspect' ||
+                        event.eventType === 'ingress')
+                        ? 'event-block--moon-aspect-ingress'
+                        : '',
+                    ]"
+                  >
+                    <div
+                      v-if="
+                        event.glyphRows.length === 2 &&
+                        !shouldCondenseMoonEventRows(page)
+                      "
+                      class="event-glyphs event-glyphs--day-lead event-glyphs--aspect-inline"
+                    >
+                      <div
+                        class="glyph-row"
+                        :class="event.glyphRows[0].elementClass"
+                      >
+                        <span class="glyph-char">{{
+                          event.glyphRows[0].planetKey ||
+                          event.glyphRows[0].planetUnicode
+                        }}</span>
+                        <span
+                          v-if="!props.isMoonCalendarMode"
+                          class="glyph-char"
+                          >{{
+                            event.glyphRows[0].zodiacKey ||
+                            event.glyphRows[0].zodiacUnicode
+                          }}</span
+                        >
+                        <span class="glyph-row-degree"
+                          >{{ event.glyphRows[0].degree
+                          }}{{
+                            !props.isMoonCalendarMode
+                              ? ` ${event.glyphRows[0].signName}`
+                              : ""
+                          }}</span
+                        >
+                        <span
+                          v-if="props.isMoonCalendarMode"
+                          class="glyph-char"
+                          >{{
+                            event.glyphRows[0].zodiacKey ||
+                            event.glyphRows[0].zodiacUnicode
+                          }}</span
+                        >
+                      </div>
+                      <span
+                        v-if="event.aspectPhysisKey"
+                        class="glyph-aspect-char"
+                        aria-hidden="true"
+                        >{{ event.aspectPhysisKey }}</span
+                      >
+                      <div
+                        class="glyph-row"
+                        :class="event.glyphRows[1].elementClass"
+                      >
+                        <span class="glyph-char">{{
+                          event.glyphRows[1].planetKey ||
+                          event.glyphRows[1].planetUnicode
+                        }}</span>
+                        <span
+                          v-if="!props.isMoonCalendarMode"
+                          class="glyph-char"
+                          >{{
+                            event.glyphRows[1].zodiacKey ||
+                            event.glyphRows[1].zodiacUnicode
+                          }}</span
+                        >
+                        <span class="glyph-row-degree"
+                          >{{ event.glyphRows[1].degree
+                          }}{{
+                            !props.isMoonCalendarMode
+                              ? ` ${event.glyphRows[1].signName}`
+                              : ""
+                          }}</span
+                        >
+                        <span
+                          v-if="props.isMoonCalendarMode"
+                          class="glyph-char"
+                          >{{
+                            event.glyphRows[1].zodiacKey ||
+                            event.glyphRows[1].zodiacUnicode
+                          }}</span
+                        >
+                      </div>
+                    </div>
+                    <div
+                      v-else-if="
+                        event.glyphRows.length &&
+                        !shouldCondenseMoonEventRows(page)
+                      "
+                      class="event-glyphs event-glyphs--day-lead"
+                    >
+                      <div
+                        v-for="(row, rowIndex) in event.glyphRows"
+                        :key="`${event.id}-glyph-${rowIndex}`"
+                        class="glyph-row"
+                        :class="row.elementClass"
+                      >
+                        <span class="glyph-char">{{
+                          row.planetKey || row.planetUnicode
+                        }}</span>
+                        <span
+                          v-if="!props.isMoonCalendarMode"
+                          class="glyph-char"
+                          >{{ row.zodiacKey || row.zodiacUnicode }}</span
+                        >
+                        <span class="glyph-row-degree"
+                          >{{ row.degree
+                          }}{{
+                            !props.isMoonCalendarMode ? ` ${row.signName}` : ""
+                          }}</span
+                        >
+                        <span
+                          v-if="props.isMoonCalendarMode"
+                          class="glyph-char"
+                          >{{ row.zodiacKey || row.zodiacUnicode }}</span
+                        >
+                      </div>
+                    </div>
+                    <div class="event-title-row">
+                      <p
+                        class="event-title"
+                        :class="[
+                          event.eventType === 'natal transit'
+                            ? 'event-title--natal'
+                            : '',
+                          event.eventType === 'tithi transition'
+                            ? 'event-title--tithi-transition'
+                            : '',
+                          event.eventType === 'tithi transition'
+                            ? `event-title--tithi-${event.tithiColorKey || 'blue'}`
+                            : '',
+                          event.eventType === 'aspect' ||
+                          event.eventType === 'ingress' ||
+                          event.eventType === 'lunation'
+                            ? 'event-title--aspect'
+                            : '',
+                        ]"
+                      >
+                        {{ event.mainLabel }}
+                      </p>
+                      <p
+                        v-if="event.timestamp"
+                        class="event-time"
+                        :class="[
+                          props.isMoonCalendarMode &&
+                          event.eventType !== 'tithi transition'
+                            ? 'event-time--moon-mode'
+                            : '',
+                          event.eventType === 'tithi transition'
+                            ? 'event-time--tithi-transition'
+                            : '',
+                          event.eventType === 'tithi transition'
+                            ? `event-time--tithi-${event.tithiColorKey || 'blue'}`
+                            : '',
+                        ]"
+                      >
+                        {{ event.timestamp }}
+                      </p>
+                    </div>
+                  </li>
+                </ul>
+                <footer class="page-day-footer">
+                  <div
+                    v-if="
+                      dayFooterSunMoonGlyphs(page.key) &&
+                      !props.isMoonCalendarMode
+                    "
+                    class="page-day-footer-glyphs"
+                    aria-label="Sun and Moon at local noon"
+                    :class="{
+                      'page-day-footer-glyphs--moon-mode':
+                        props.isMoonCalendarMode,
+                    }"
+                  >
+                    <span
+                      v-if="!props.isMoonCalendarMode"
+                      class="page-day-footer-pair"
+                      :class="dayFooterSunMoonGlyphs(page.key).sun.elementClass"
+                    >
+                      <span class="glyph-char">{{
+                        dayFooterSunMoonGlyphs(page.key).sun.planetKey ||
+                        dayFooterSunMoonGlyphs(page.key).sun.planetUnicode
+                      }}</span>
+                      <span class="glyph-char">{{
+                        dayFooterSunMoonGlyphs(page.key).sun.zodiacKey ||
+                        dayFooterSunMoonGlyphs(page.key).sun.zodiacUnicode
+                      }}</span>
+                    </span>
+                  </div>
+                  <span
+                    v-if="dayTithiDetails(page.key).primaryTithi"
+                    class="page-moon-wrap page-moon-wrap--footer"
+                    v-show="!props.isMoonCalendarMode"
+                    :class="{
+                      'page-moon-wrap--eclipse': dayHasEclipse(page.key),
+                    }"
+                  >
+                    <img
+                      v-if="moonIconSrc(dayTithiDetails(page.key).primaryTithi)"
+                      class="page-moon-icon page-moon-icon--footer"
+                      width="40"
+                      height="40"
+                      :src="moonIconSrc(dayTithiDetails(page.key).primaryTithi)"
+                      alt=""
+                      :title="`Primary tithi ${dayTithiDetails(page.key).primaryTithi}`"
+                    />
+                  </span>
+                </footer>
+              </template>
             </div>
           </article>
         </div>
@@ -2290,6 +2427,12 @@ function toDateInputValue(date) {
   text-align: center;
 }
 
+.calendar-cover-logo {
+  display: block;
+  width: min(60%, 160px);
+  height: auto;
+}
+
 .day-page-header {
   display: flex;
   justify-content: space-between;
@@ -2302,6 +2445,7 @@ function toDateInputValue(date) {
 .day-page-header--moon-mode {
   margin-top: 0.2rem;
   margin-bottom: 0.2rem;
+  gap: 0;
 }
 
 .header-day {
@@ -2317,6 +2461,8 @@ function toDateInputValue(date) {
   font-size: clamp(0.78rem, 2vw, 0.95rem);
   line-height: 1.2;
   letter-spacing: 0.06em;
+  white-space: nowrap;
+  overflow: visible;
 }
 
 .tithi-tag {
@@ -2331,15 +2477,15 @@ function toDateInputValue(date) {
 }
 
 .tithi-tag--day-corner {
-  font-size: clamp(0.78rem, 2vw, 0.95rem);
+  font-size: 0.62rem;
   font-weight: 700;
-  letter-spacing: 0.06em;
+  letter-spacing: 0.02em;
   line-height: 1.2;
-  padding-top: 0.12rem;
+  padding-top: 0;
 }
 
 .tithi-tag--day-corner-moon-mode {
-  padding-top: 0.12rem;
+  padding-top: 0;
 }
 
 .tithi-tag--blue {
@@ -2481,6 +2627,10 @@ function toDateInputValue(date) {
   align-items: baseline;
   gap: 0.02rem;
   flex-shrink: 0;
+}
+
+.moon-dignity-inline-glyph--day-corner {
+  margin-top: -0.14rem;
 }
 
 .moon-dignity-inline-glyph .glyph-char {
